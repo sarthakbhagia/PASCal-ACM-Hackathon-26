@@ -56,7 +56,7 @@ export function TravelMap({
     setMounted(true)
   }, [])
 
-  // Fetch actual routing data from LocationIQ when places change
+  // Fetch actual routing data from OSRM (Open Source Routing Machine)
   useEffect(() => {
     async function fetchRoute() {
       if (places.length < 2) {
@@ -64,16 +64,13 @@ export function TravelMap({
         return
       }
 
-      // LocationIQ Directions API expects: lon,lat;lon,lat
+      // OSRM expects: lon,lat;lon,lat
       const coordinatesString = places
         .map(p => `${p.coordinates[1]},${p.coordinates[0]}`)
         .join(';')
 
-      const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_API_KEY
-      if (!apiKey) return
-
       try {
-        const url = `https://us1.locationiq.com/v1/directions/driving/${coordinatesString}?key=${apiKey}&geometries=geojson&overview=full`
+        const url = `https://router.project-osrm.org/route/v1/driving/${coordinatesString}?overview=full&geometries=geojson`
         const res = await fetch(url)
         
         if (res.ok) {
@@ -86,10 +83,9 @@ export function TravelMap({
           }
         }
       } catch (error) {
-        console.error('Failed to fetch detailed route:', error)
+        console.error('Failed to fetch OSRM route:', error)
       }
       
-      // Fallback: clear detailed route so it falls back to straight lines
       setDetailedRoute([])
     }
 
@@ -105,8 +101,6 @@ export function TravelMap({
   }
   
   const routeCoordinates = places.map(p => p.coordinates)
-  
-  // Decide which path to show: detailed street route (if available), or straight connecting lines
   const pathToRender = detailedRoute.length > 0 ? detailedRoute : routeCoordinates
   
   return (
@@ -118,9 +112,10 @@ export function TravelMap({
       dragging={interactive}
       scrollWheelZoom={interactive}
     >
+      {/* Switch to CartoDB Dark Matter tiles (Free, no key needed) */}
       <TileLayer
-        attribution='&copy; <a href="https://locationiq.com/?ref=maps" target="_blank">LocationIQ</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url={`https://{s}-tiles.locationiq.com/v3/dark/r/{z}/{x}/{y}.png?key=${process.env.NEXT_PUBLIC_LOCATIONIQ_API_KEY}`}
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
       />
       
       <MapUpdater center={center} places={places} />
@@ -133,7 +128,7 @@ export function TravelMap({
             color: '#e87d3e',
             weight: 4,
             opacity: 0.8,
-            dashArray: detailedRoute.length > 0 ? undefined : '10, 10', // Dashed for straight lines, solid for real routes
+            dashArray: detailedRoute.length > 0 ? undefined : '10, 10',
             lineCap: 'round',
             lineJoin: 'round'
           }}

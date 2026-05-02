@@ -11,7 +11,6 @@ interface DiscoverRequest {
   coordinates: [number, number]
   interests: string[]
   pace: string
-  accommodationType: string
 }
 
 Deno.serve(async (req) => {
@@ -20,31 +19,21 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { destination, coordinates, interests, pace } =
-      (await req.json()) as DiscoverRequest
-
-    const LOCATIONIQ_KEY = Deno.env.get("LOCATIONIQ_API_KEY")!
+    const { destination, interests } = (await req.json()) as DiscoverRequest
     const TAVILY_KEY = Deno.env.get("TAVILY_API_KEY")!
 
-    // Step 1: Use LocationIQ to find actual Points of Interest (POIs) for each interest
-    const categoryMap: Record<string, string> = {
-      landmark: "tourism",
-      restaurant: "restaurant",
-      museum: "museum",
-      park: "park",
-      shopping: "mall",
-      entertainment: "theatre",
-      beach: "beach",
-      nightlife: "bar",
-    }
-
+    // Step 1: Use Nominatim (OpenStreetMap) to find actual POIs
+    // Nominatim is free and open-source
     const poiTasks = interests.map(async (interest) => {
-      const tag = categoryMap[interest] || interest
-      const query = `${tag} in ${destination}`
-      const url = `https://us1.locationiq.com/v1/search?key=${LOCATIONIQ_KEY}&q=${encodeURIComponent(query)}&format=json&limit=6&addressdetails=1`
+      const query = `${interest} in ${destination}`
+      const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=8&addressdetails=1`
 
       try {
-        const res = await fetch(url)
+        const res = await fetch(url, {
+          headers: {
+            "User-Agent": "VoyagerTravelPlanner/1.0" // Nominatim requires a user-agent
+          }
+        })
         if (res.ok) {
           const data = await res.json()
           return data.map((item: any) => ({
@@ -73,7 +62,7 @@ Deno.serve(async (req) => {
       return true
     })
 
-    // Step 2: Enrich the TOP POIs with Tavily descriptions and images
+    // Step 2: Enrich with Tavily
     const enrichmentTasks = uniquePOIs.slice(0, 15).map(async (poi) => {
       const query = `${poi.name} ${destination} tourist information Highlights and Description`
       

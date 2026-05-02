@@ -51,17 +51,22 @@ export function DestinationPicker() {
     }
     
     const timer = setTimeout(async () => {
-      const key = process.env.NEXT_PUBLIC_LOCATIONIQ_API_KEY
-      if (!key) return
-      
       setIsSearching(true)
       try {
         const res = await fetch(
-          `https://api.locationiq.com/v1/autocomplete?key=${key}&q=${encodeURIComponent(searchQuery)}&limit=5&tag=place:city,place:town,place:village,place:country`
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchQuery)}&format=json&limit=5&addressdetails=1&featuretype=city`
         )
         if (res.ok) {
           const data = await res.json()
-          setSuggestions(data)
+          // Nominatim returns a slightly different format, map it to our interface
+          const mappedData = data.map((item: any) => ({
+            place_id: item.place_id.toString(),
+            display_name: item.display_name,
+            lat: item.lat,
+            lon: item.lon,
+            type: item.type
+          }))
+          setSuggestions(mappedData)
           setShowSuggestions(true)
         }
       } catch {
