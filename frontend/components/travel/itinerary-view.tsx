@@ -15,12 +15,21 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
-  Share2
+  Share2,
+  Sparkles,
+  Trash2,
+  ArrowUpDown,
+  Plus,
+  GripVertical,
+  Loader2,
+  X,
+  MoveRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useTravelStore } from '@/lib/travel-store'
+import { exportItineraryToPDF } from '@/lib/pdf-generator'
 import { cn } from '@/lib/utils'
 import Image from 'next/image'
 import dynamic from 'next/dynamic'
@@ -35,8 +44,15 @@ const TravelMap = dynamic(() => import('./travel-map').then(mod => mod.TravelMap
 })
 
 export function ItineraryView() {
-  const { itinerary, setStep, activeDayIndex, setActiveDayIndex } = useTravelStore()
+  const { 
+    itinerary, setStep, activeDayIndex, setActiveDayIndex,
+    removePlaceFromDay, movePlaceToDay, reorderPlaceInDay, addPlaceToDay,
+    enhanceItinerary, isEnhancing, discoveredPlaces, selectedPlaces,
+    error, clearError,
+  } = useTravelStore()
   const [expandedPlace, setExpandedPlace] = useState<string | null>(null)
+  const [showMoveMenu, setShowMoveMenu] = useState<string | null>(null)
+  const [showAddPanel, setShowAddPanel] = useState(false)
   
   if (!itinerary) {
     return (
@@ -54,10 +70,40 @@ export function ItineraryView() {
     const mins = minutes % 60
     return mins > 0 ? `${hours}h ${mins}m` : `${hours}h`
   }
+
+  // Places available to add (discovered but not in current itinerary)
+  const allItineraryPlaceIds = new Set(
+    itinerary.days.flatMap(d => d.places.map(p => p.id))
+  )
+  const availablePlaces = discoveredPlaces.filter(p => !allItineraryPlaceIds.has(p.id))
+
+  const handleMoveUp = (dayIndex: number, placeIndex: number) => {
+    if (placeIndex > 0) {
+      reorderPlaceInDay(dayIndex, placeIndex, placeIndex - 1)
+    }
+  }
+
+  const handleMoveDown = (dayIndex: number, placeIndex: number) => {
+    if (placeIndex < activeDay.places.length - 1) {
+      reorderPlaceInDay(dayIndex, placeIndex, placeIndex + 1)
+    }
+  }
   
   return (
     <div className="min-h-[calc(100vh-80px)] py-8 px-4">
       <div className="container mx-auto">
+        {/* Enhancing Overlay */}
+        {isEnhancing && (
+          <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center">
+            <div className="text-center p-8">
+              <Sparkles className="w-12 h-12 text-primary mx-auto mb-4 animate-pulse" />
+              <h2 className="text-2xl font-bold mb-2">Enhancing Your Itinerary</h2>
+              <p className="text-muted-foreground">AI is optimizing timings, routes, and adding travel tips...</p>
+              <Loader2 className="w-6 h-6 text-primary mx-auto mt-4 animate-spin" />
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
           <div>
@@ -79,17 +125,42 @@ export function ItineraryView() {
             </p>
           </div>
           
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-2"
+              onClick={() => enhanceItinerary()}
+              disabled={isEnhancing}
+            >
+              <Sparkles className="w-4 h-4" />
+              Review & Enhance
+            </Button>
             <Button variant="outline" size="sm" className="gap-2">
               <Share2 className="w-4 h-4" />
               Share
             </Button>
-            <Button variant="outline" size="sm" className="gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-2"
+              onClick={() => exportItineraryToPDF(itinerary)}
+            >
               <Download className="w-4 h-4" />
-              Export
+              Export PDF
             </Button>
           </div>
         </div>
+
+        {/* Error display */}
+        {error && (
+          <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/30 flex items-center gap-3">
+            <p className="text-sm text-destructive flex-1">{error}</p>
+            <Button variant="ghost" size="sm" onClick={clearError}>
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+        )}
         
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Day Selector & Timeline */}
@@ -133,9 +204,64 @@ export function ItineraryView() {
                       <div className="text-2xl font-bold">{activeDay.totalDistance} km</div>
                     </div>
                   </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => setShowAddPanel(!showAddPanel)}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Place
+                  </Button>
                 </div>
               </CardContent>
             </Card>
+
+            {/* Add Place Panel */}
+            {showAddPanel && (
+              <Card className="border-primary/30 bg-card/50 backdrop-blur">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      <Plus className="w-5 h-5 text-primary" />
+                      Add a Place to Day {activeDayIndex + 1}
+                    </CardTitle>
+                    <Button variant="ghost" size="icon" onClick={() => setShowAddPanel(false)}>
+                      <X className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  {availablePlaces.length === 0 ? (
+                    <p className="text-sm text-muted-foreground py-4 text-center">
+                      All discovered places are already in your itinerary.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-60 overflow-y-auto">
+                      {availablePlaces.map((place) => (
+                        <button
+                          key={place.id}
+                          onClick={() => {
+                            addPlaceToDay(activeDayIndex, place)
+                            setShowAddPanel(false)
+                          }}
+                          className="flex items-center gap-3 p-3 rounded-lg border border-border/50 hover:border-primary/50 transition-all text-left"
+                        >
+                          <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
+                            <Image src={place.imageUrl} alt={place.name} fill className="object-cover" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-sm line-clamp-1">{place.name}</p>
+                            <p className="text-xs text-muted-foreground">{formatDuration(place.duration)}</p>
+                          </div>
+                          <Plus className="w-4 h-4 text-primary flex-shrink-0" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
             
             {/* Timeline */}
             <div className="space-y-4">
@@ -153,14 +279,31 @@ export function ItineraryView() {
                   
                   <Card 
                     className={cn(
-                      'border-border/50 bg-card/50 backdrop-blur overflow-hidden transition-all cursor-pointer',
+                      'border-border/50 bg-card/50 backdrop-blur overflow-hidden transition-all',
                       expandedPlace === place.id && 'ring-1 ring-primary'
                     )}
-                    onClick={() => setExpandedPlace(expandedPlace === place.id ? null : place.id)}
                   >
                     <div className="flex">
-                      {/* Time Column */}
-                      <div className="w-20 flex-shrink-0 bg-secondary/30 p-4 flex flex-col items-center justify-center border-r border-border/50">
+                      {/* Drag Handle + Time Column */}
+                      <div className="w-24 flex-shrink-0 bg-secondary/30 p-4 flex flex-col items-center justify-center border-r border-border/50">
+                        <div className="flex gap-1 mb-2">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleMoveUp(activeDayIndex, index) }}
+                            disabled={index === 0}
+                            className="p-1 rounded hover:bg-secondary disabled:opacity-30"
+                            title="Move up"
+                          >
+                            <ChevronUp className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleMoveDown(activeDayIndex, index) }}
+                            disabled={index === activeDay.places.length - 1}
+                            className="p-1 rounded hover:bg-secondary disabled:opacity-30"
+                            title="Move down"
+                          >
+                            <ChevronDown className="w-3 h-3" />
+                          </button>
+                        </div>
                         <div className="text-lg font-bold">{place.startTime}</div>
                         <div className="text-xs text-muted-foreground">to</div>
                         <div className="text-sm text-muted-foreground">{place.endTime}</div>
@@ -189,7 +332,7 @@ export function ItineraryView() {
                               </div>
                             </div>
                             
-                            <h3 className="font-bold text-lg mb-1">{place.name}</h3>
+                            <h3 className="font-bold text-lg mb-1 cursor-pointer" onClick={() => setExpandedPlace(expandedPlace === place.id ? null : place.id)}>{place.name}</h3>
                             
                             <div className="flex items-center gap-3 text-sm text-muted-foreground">
                               <span className="flex items-center gap-1">
@@ -205,13 +348,72 @@ export function ItineraryView() {
                             </div>
                           </div>
                           
-                          <Button variant="ghost" size="icon" className="flex-shrink-0">
-                            {expandedPlace === place.id ? (
-                              <ChevronUp className="w-4 h-4" />
-                            ) : (
-                              <ChevronDown className="w-4 h-4" />
-                            )}
-                          </Button>
+                          {/* Action buttons */}
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {/* Move to day button */}
+                            <div className="relative">
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                className="h-8 w-8"
+                                onClick={(e) => { 
+                                  e.stopPropagation()
+                                  setShowMoveMenu(showMoveMenu === place.id ? null : place.id) 
+                                }}
+                                title="Move to another day"
+                              >
+                                <MoveRight className="w-4 h-4" />
+                              </Button>
+                              
+                              {showMoveMenu === place.id && (
+                                <div className="absolute right-0 top-full mt-1 z-20 bg-card border border-border/50 rounded-lg shadow-xl p-1 min-w-[120px]">
+                                  {itinerary.days.map((_, dayIdx) => (
+                                    dayIdx !== activeDayIndex && (
+                                      <button
+                                        key={dayIdx}
+                                        onClick={(e) => {
+                                          e.stopPropagation()
+                                          movePlaceToDay(activeDayIndex, dayIdx, place.id)
+                                          setShowMoveMenu(null)
+                                        }}
+                                        className="w-full text-left px-3 py-2 text-sm rounded-md hover:bg-secondary transition-colors"
+                                      >
+                                        Day {dayIdx + 1}
+                                      </button>
+                                    )
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Remove button */}
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                              onClick={(e) => { 
+                                e.stopPropagation()
+                                removePlaceFromDay(activeDayIndex, place.id) 
+                              }}
+                              title="Remove from itinerary"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+
+                            {/* Expand button */}
+                            <Button 
+                              variant="ghost" 
+                              size="icon" 
+                              className="h-8 w-8"
+                              onClick={() => setExpandedPlace(expandedPlace === place.id ? null : place.id)}
+                            >
+                              {expandedPlace === place.id ? (
+                                <ChevronUp className="w-4 h-4" />
+                              ) : (
+                                <ChevronDown className="w-4 h-4" />
+                              )}
+                            </Button>
+                          </div>
                         </div>
                         
                         {/* Expanded Content */}
@@ -225,9 +427,17 @@ export function ItineraryView() {
                               <span>{place.address}</span>
                             </div>
                             {place.openingHours && (
-                              <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                              <div className="flex items-center gap-1 text-sm text-muted-foreground mb-3">
                                 <Clock className="w-4 h-4" />
                                 <span>Hours: {place.openingHours}</span>
+                              </div>
+                            )}
+                            {place.notes && (
+                              <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 mt-3">
+                                <p className="text-sm text-primary flex items-start gap-2">
+                                  <Sparkles className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                                  {place.notes}
+                                </p>
                               </div>
                             )}
                             <div className="mt-4 flex gap-2">
@@ -243,6 +453,16 @@ export function ItineraryView() {
                   </Card>
                 </div>
               ))}
+
+              {activeDay.places.length === 0 && (
+                <div className="text-center py-12 text-muted-foreground">
+                  <p className="text-lg mb-2">No places scheduled for this day</p>
+                  <Button variant="outline" className="gap-2" onClick={() => setShowAddPanel(true)}>
+                    <Plus className="w-4 h-4" />
+                    Add a Place
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
           

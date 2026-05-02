@@ -50,10 +50,51 @@ export function TravelMap({
   onPlaceClick 
 }: TravelMapProps) {
   const [mounted, setMounted] = useState(false)
+  const [detailedRoute, setDetailedRoute] = useState<[number, number][]>([])
   
   useEffect(() => {
     setMounted(true)
   }, [])
+
+  // Fetch actual routing data from LocationIQ when places change
+  useEffect(() => {
+    async function fetchRoute() {
+      if (places.length < 2) {
+        setDetailedRoute([])
+        return
+      }
+
+      // LocationIQ Directions API expects: lon,lat;lon,lat
+      const coordinatesString = places
+        .map(p => `${p.coordinates[1]},${p.coordinates[0]}`)
+        .join(';')
+
+      const apiKey = process.env.NEXT_PUBLIC_LOCATIONIQ_API_KEY
+      if (!apiKey) return
+
+      try {
+        const url = `https://us1.locationiq.com/v1/directions/driving/${coordinatesString}?key=${apiKey}&geometries=geojson&overview=full`
+        const res = await fetch(url)
+        
+        if (res.ok) {
+          const data = await res.json()
+          if (data.routes && data.routes.length > 0) {
+            // GeoJSON returns [lon, lat], Leaflet needs [lat, lon]
+            const routePoints = data.routes[0].geometry.coordinates.map((coord: [number, number]) => [coord[1], coord[0]])
+            setDetailedRoute(routePoints)
+            return
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch detailed route:', error)
+      }
+      
+      // Fallback: clear detailed route so it falls back to straight lines
+      setDetailedRoute([])
+    }
+
+    fetchRoute()
+  }, [places])
   
   if (!mounted) {
     return (
@@ -65,11 +106,14 @@ export function TravelMap({
   
   const routeCoordinates = places.map(p => p.coordinates)
   
+  // Decide which path to show: detailed street route (if available), or straight connecting lines
+  const pathToRender = detailedRoute.length > 0 ? detailedRoute : routeCoordinates
+  
   return (
     <MapContainer
       center={center}
       zoom={12}
-      className="w-full h-[400px] rounded-xl"
+      className="w-full h-full min-h-[400px] rounded-xl z-0"
       zoomControl={interactive}
       dragging={interactive}
       scrollWheelZoom={interactive}
@@ -82,14 +126,16 @@ export function TravelMap({
       <MapUpdater center={center} places={places} />
       
       {/* Route line */}
-      {routeCoordinates.length > 1 && (
+      {pathToRender.length > 1 && (
         <Polyline
-          positions={routeCoordinates}
+          positions={pathToRender}
           pathOptions={{
             color: '#e87d3e',
-            weight: 3,
+            weight: 4,
             opacity: 0.8,
-            dashArray: '10, 10',
+            dashArray: detailedRoute.length > 0 ? undefined : '10, 10', // Dashed for straight lines, solid for real routes
+            lineCap: 'round',
+            lineJoin: 'round'
           }}
         />
       )}

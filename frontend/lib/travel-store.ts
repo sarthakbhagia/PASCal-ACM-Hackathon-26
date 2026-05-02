@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import type { Place, TravelPreferences, Itinerary, ItineraryDay, ItineraryPlace } from './travel-types'
-import { getPlacesForDestination } from './sample-data'
-import { addDays, format, differenceInDays } from 'date-fns'
+import { popularDestinations } from './sample-data'
+import { supabase } from './supabase'
+import { format, differenceInDays } from 'date-fns'
 
 interface TravelState {
   // Current step in the planning flow
@@ -9,6 +10,7 @@ interface TravelState {
   
   // Selected destination
   selectedDestination: string | null
+  destinationCoordinates: [number, number] | null
   
   // Travel preferences
   preferences: TravelPreferences | null
@@ -23,103 +25,120 @@ interface TravelState {
   // Active day index for navigation
   activeDayIndex: number
   
+  // Loading & error states
+  isDiscovering: boolean
+  isGenerating: boolean
+  isEnhancing: boolean
+  error: string | null
+  
   // Actions
   setStep: (step: TravelState['currentStep']) => void
-  setDestination: (destination: string) => void
+  setDestination: (destination: string, coordinates?: [number, number]) => void
   setPreferences: (preferences: TravelPreferences) => void
-  discoverPlaces: () => void
+  discoverPlaces: () => Promise<void>
   togglePlaceSelection: (place: Place) => void
-  generateItinerary: () => void
+  generateItinerary: () => Promise<void>
+  enhanceItinerary: () => Promise<void>
   setActiveDayIndex: (index: number) => void
   resetPlanning: () => void
-}
-
-function calculateTravelTime(from: [number, number], to: [number, number]): number {
-  // Simple Haversine distance approximation
-  const R = 6371 // Earth's radius in km
-  const dLat = ((to[0] - from[0]) * Math.PI) / 180
-  const dLon = ((to[1] - from[1]) * Math.PI) / 180
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((from[0] * Math.PI) / 180) *
-      Math.cos((to[0] * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  const distance = R * c
+  clearError: () => void
   
-  // Assume average speed of 30 km/h in city traffic, return time in minutes
-  return Math.round((distance / 30) * 60)
-}
-
-function optimizeRoute(places: Place[]): Place[] {
-  if (places.length <= 2) return places
-  
-  // Simple nearest neighbor algorithm for route optimization
-  const result: Place[] = []
-  const remaining = [...places]
-  
-  // Start with the first place
-  result.push(remaining.shift()!)
-  
-  while (remaining.length > 0) {
-    const lastPlace = result[result.length - 1]
-    let nearestIndex = 0
-    let nearestDistance = Infinity
-    
-    remaining.forEach((place, index) => {
-      const distance = Math.sqrt(
-        Math.pow(place.coordinates[0] - lastPlace.coordinates[0], 2) +
-        Math.pow(place.coordinates[1] - lastPlace.coordinates[1], 2)
-      )
-      if (distance < nearestDistance) {
-        nearestDistance = distance
-        nearestIndex = index
-      }
-    })
-    
-    result.push(remaining.splice(nearestIndex, 1)[0])
-  }
-  
-  return result
+  // Itinerary editing actions
+  removePlaceFromDay: (dayIndex: number, placeId: string) => void
+  movePlaceToDay: (fromDayIndex: number, toDayIndex: number, placeId: string) => void
+  reorderPlaceInDay: (dayIndex: number, fromIndex: number, toIndex: number) => void
+  addPlaceToDay: (dayIndex: number, place: Place) => void
+  setItinerary: (itinerary: Itinerary) => void
 }
 
 export const useTravelStore = create<TravelState>((set, get) => ({
   currentStep: 'destination',
   selectedDestination: null,
+  destinationCoordinates: null,
   preferences: null,
   discoveredPlaces: [],
   selectedPlaces: [],
   itinerary: null,
   activeDayIndex: 0,
+  isDiscovering: false,
+  isGenerating: false,
+  isEnhancing: false,
+  error: null,
   
   setStep: (step) => set({ currentStep: step }),
   
-  setDestination: (destination) => set({ 
-    selectedDestination: destination,
-    currentStep: 'preferences' 
-  }),
+  setDestination: (destination, coordinates) => {
+    // Try to match to known destinations for coordinates
+    const known = popularDestinations.find(
+      d => d.name.toLowerCase() === destination.toLowerCase()
+    )
+    set({ 
+      selectedDestination: destination,
+      destinationCoordinates: coordinates || known?.coordinates || null,
+      currentStep: 'preferences' 
+    })
+  },
   
   setPreferences: (preferences) => set({ 
     preferences,
     currentStep: 'discover'
   }),
   
-  discoverPlaces: () => {
-    const { selectedDestination, preferences } = get()
+  discoverPlaces: async () => {
+    const { selectedDestination, destinationCoordinates, preferences } = get()
     if (!selectedDestination) return
     
-    let places = getPlacesForDestination(selectedDestination)
+    set({ isDiscovering: true, error: null, discoveredPlaces: [] })
     
-    // Filter by interests if preferences exist
-    if (preferences?.interests.length) {
-      places = places.filter(p => preferences.interests.includes(p.category))
+    try {
+      // If we don't have coordinates, try to geocode using LocationIQ
+      let coords = destinationCoordinates
+      if (!coords) {
+        const locationiqKey = process.env.NEXT_PUBLIC_LOCATIONIQ_API_KEY
+        if (locationiqKey) {
+          const geoRes = await fetch(
+            `https://us1.locationiq.com/v1/search?key=${locationiqKey}&q=${encodeURIComponent(selectedDestination)}&format=json&limit=1`
+          )
+          if (geoRes.ok) {
+            const geoData = await geoRes.json()
+            if (geoData.length > 0) {
+              coords = [parseFloat(geoData[0].lat), parseFloat(geoData[0].lon)]
+              set({ destinationCoordinates: coords })
+            }
+          }
+        }
+      }
+      
+      const { data, error } = await supabase.functions.invoke('discover-places', {
+        body: {
+          destination: selectedDestination,
+          coordinates: coords || [0, 0],
+          interests: preferences?.interests || ['landmark', 'restaurant'],
+          budget: preferences?.budget || 'moderate',
+          pace: preferences?.pace || 'moderate',
+        },
+      })
+      
+      if (error) throw new Error(error.message || 'Failed to discover places')
+      
+      let places: Place[] = data?.places || []
+      
+      // Filter by interests if preferences exist
+      if (preferences?.interests.length) {
+        places = places.filter(p => preferences.interests.includes(p.category))
+      }
+      
+      // Sort by rating
+      places.sort((a, b) => b.rating - a.rating)
+      
+      set({ discoveredPlaces: places, isDiscovering: false })
+    } catch (err) {
+      console.error('Error discovering places:', err)
+      set({ 
+        error: err instanceof Error ? err.message : 'Failed to discover places',
+        isDiscovering: false 
+      })
     }
-    
-    // Sort by rating
-    places.sort((a, b) => b.rating - a.rating)
-    
-    set({ discoveredPlaces: places })
   },
   
   togglePlaceSelection: (place) => {
@@ -133,91 +152,200 @@ export const useTravelStore = create<TravelState>((set, get) => ({
     }
   },
   
-  generateItinerary: () => {
+  generateItinerary: async () => {
     const { selectedDestination, preferences, selectedPlaces } = get()
     if (!selectedDestination || !preferences || selectedPlaces.length === 0) return
     
-    const startDate = preferences.startDate
-    const endDate = preferences.endDate
-    const numDays = differenceInDays(endDate, startDate) + 1
+    set({ isGenerating: true, error: null })
     
-    // Determine places per day based on pace
-    const placesPerDay = preferences.pace === 'relaxed' ? 2 : preferences.pace === 'moderate' ? 3 : 4
-    
-    // Optimize the overall route
-    const optimizedPlaces = optimizeRoute([...selectedPlaces])
-    
-    // Distribute places across days
-    const days: ItineraryDay[] = []
-    let placeIndex = 0
-    
-    for (let i = 0; i < numDays && placeIndex < optimizedPlaces.length; i++) {
-      const dayPlaces: ItineraryPlace[] = []
-      let currentTime = 9 * 60 // Start at 9:00 AM in minutes
-      let totalDuration = 0
-      let totalDistance = 0
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-itinerary', {
+        body: {
+          destination: selectedDestination,
+          places: selectedPlaces,
+          preferences: {
+            budget: preferences.budget,
+            pace: preferences.pace,
+            interests: preferences.interests,
+            accommodationType: preferences.accommodationType,
+          },
+          startDate: format(preferences.startDate, 'yyyy-MM-dd'),
+          endDate: format(preferences.endDate, 'yyyy-MM-dd'),
+        },
+      })
       
-      const dailyPlaceCount = Math.min(placesPerDay, optimizedPlaces.length - placeIndex)
+      if (error) throw new Error(error.message || 'Failed to generate itinerary')
       
-      for (let j = 0; j < dailyPlaceCount && placeIndex < optimizedPlaces.length; j++) {
-        const place = optimizedPlaces[placeIndex]
-        const prevPlace = dayPlaces[dayPlaces.length - 1]
-        
-        let travelTime = 0
-        if (prevPlace) {
-          travelTime = calculateTravelTime(prevPlace.coordinates, place.coordinates)
-          currentTime += travelTime
-          totalDistance += travelTime * 0.5 // Approximate km based on travel time
-        }
-        
-        const startHour = Math.floor(currentTime / 60)
-        const startMin = currentTime % 60
-        const endTime = currentTime + place.duration
-        const endHour = Math.floor(endTime / 60)
-        const endMin = endTime % 60
-        
-        dayPlaces.push({
-          ...place,
-          startTime: `${startHour.toString().padStart(2, '0')}:${startMin.toString().padStart(2, '0')}`,
-          endTime: `${endHour.toString().padStart(2, '0')}:${endMin.toString().padStart(2, '0')}`,
-          travelTimeFromPrevious: travelTime > 0 ? travelTime : undefined,
-        })
-        
-        currentTime = endTime + 30 // 30 min buffer between activities
-        totalDuration += place.duration + travelTime
-        placeIndex++
+      const itinerary = data?.itinerary
+      if (!itinerary) throw new Error('No itinerary returned')
+      
+      // Convert date strings to Date objects for the frontend
+      itinerary.startDate = new Date(itinerary.startDate)
+      itinerary.endDate = new Date(itinerary.endDate)
+      itinerary.createdAt = new Date(itinerary.createdAt || new Date())
+      if (itinerary.days) {
+        itinerary.days = itinerary.days.map((day: any) => ({
+          ...day,
+          date: new Date(day.date),
+        }))
       }
       
-      days.push({
-        date: addDays(startDate, i),
-        places: dayPlaces,
-        totalDuration,
-        totalDistance: Math.round(totalDistance),
+      set({ itinerary, currentStep: 'itinerary', isGenerating: false })
+    } catch (err) {
+      console.error('Error generating itinerary:', err)
+      set({ 
+        error: err instanceof Error ? err.message : 'Failed to generate itinerary',
+        isGenerating: false 
       })
     }
-    
-    const itinerary: Itinerary = {
-      id: crypto.randomUUID(),
-      destination: selectedDestination,
-      startDate,
-      endDate,
-      days,
-      totalBudget: preferences.budget === 'budget' ? '$500 - $1,000' : preferences.budget === 'moderate' ? '$1,000 - $2,500' : '$2,500+',
-      createdAt: new Date(),
-    }
-    
-    set({ itinerary, currentStep: 'itinerary' })
   },
   
+  enhanceItinerary: async () => {
+    const { itinerary } = get()
+    if (!itinerary) return
+    
+    set({ isEnhancing: true, error: null })
+    
+    try {
+      // Serialize dates for the API
+      const serialized = {
+        ...itinerary,
+        startDate: itinerary.startDate instanceof Date 
+          ? format(itinerary.startDate, 'yyyy-MM-dd') 
+          : itinerary.startDate,
+        endDate: itinerary.endDate instanceof Date 
+          ? format(itinerary.endDate, 'yyyy-MM-dd') 
+          : itinerary.endDate,
+        createdAt: itinerary.createdAt instanceof Date 
+          ? itinerary.createdAt.toISOString() 
+          : itinerary.createdAt,
+        days: itinerary.days.map(day => ({
+          ...day,
+          date: day.date instanceof Date 
+            ? format(day.date, 'yyyy-MM-dd') 
+            : day.date,
+        })),
+      }
+      
+      const { data, error } = await supabase.functions.invoke('enhance-itinerary', {
+        body: { itinerary: serialized },
+      })
+      
+      if (error) throw new Error(error.message || 'Failed to enhance itinerary')
+      
+      const enhanced = data?.itinerary
+      if (!enhanced) throw new Error('No enhanced itinerary returned')
+      
+      // Convert dates back
+      enhanced.startDate = new Date(enhanced.startDate)
+      enhanced.endDate = new Date(enhanced.endDate)
+      enhanced.createdAt = new Date(enhanced.createdAt || new Date())
+      if (enhanced.days) {
+        enhanced.days = enhanced.days.map((day: any) => ({
+          ...day,
+          date: new Date(day.date),
+        }))
+      }
+      
+      set({ itinerary: enhanced, isEnhancing: false })
+    } catch (err) {
+      console.error('Error enhancing itinerary:', err)
+      set({ 
+        error: err instanceof Error ? err.message : 'Failed to enhance itinerary',
+        isEnhancing: false 
+      })
+    }
+  },
+  
+  // Itinerary editing actions
+  removePlaceFromDay: (dayIndex, placeId) => {
+    const { itinerary } = get()
+    if (!itinerary) return
+    
+    const newDays = [...itinerary.days]
+    newDays[dayIndex] = {
+      ...newDays[dayIndex],
+      places: newDays[dayIndex].places.filter(p => p.id !== placeId),
+    }
+    
+    set({ itinerary: { ...itinerary, days: newDays } })
+  },
+  
+  movePlaceToDay: (fromDayIndex, toDayIndex, placeId) => {
+    const { itinerary } = get()
+    if (!itinerary) return
+    
+    const newDays = [...itinerary.days]
+    const place = newDays[fromDayIndex].places.find(p => p.id === placeId)
+    if (!place) return
+    
+    newDays[fromDayIndex] = {
+      ...newDays[fromDayIndex],
+      places: newDays[fromDayIndex].places.filter(p => p.id !== placeId),
+    }
+    newDays[toDayIndex] = {
+      ...newDays[toDayIndex],
+      places: [...newDays[toDayIndex].places, place],
+    }
+    
+    set({ itinerary: { ...itinerary, days: newDays } })
+  },
+  
+  reorderPlaceInDay: (dayIndex, fromIndex, toIndex) => {
+    const { itinerary } = get()
+    if (!itinerary) return
+    
+    const newDays = [...itinerary.days]
+    const places = [...newDays[dayIndex].places]
+    const [movedPlace] = places.splice(fromIndex, 1)
+    places.splice(toIndex, 0, movedPlace)
+    
+    newDays[dayIndex] = { ...newDays[dayIndex], places }
+    set({ itinerary: { ...itinerary, days: newDays } })
+  },
+  
+  addPlaceToDay: (dayIndex, place) => {
+    const { itinerary } = get()
+    if (!itinerary) return
+    
+    const newDays = [...itinerary.days]
+    const lastPlace = newDays[dayIndex].places[newDays[dayIndex].places.length - 1]
+    
+    const itineraryPlace: ItineraryPlace = {
+      ...place,
+      startTime: lastPlace ? lastPlace.endTime : '09:00',
+      endTime: lastPlace 
+        ? `${String(parseInt(lastPlace.endTime.split(':')[0]) + Math.ceil(place.duration / 60)).padStart(2, '0')}:${lastPlace.endTime.split(':')[1]}` 
+        : `${String(9 + Math.ceil(place.duration / 60)).padStart(2, '0')}:00`,
+      travelTimeFromPrevious: lastPlace ? 15 : undefined,
+    }
+    
+    newDays[dayIndex] = {
+      ...newDays[dayIndex],
+      places: [...newDays[dayIndex].places, itineraryPlace],
+    }
+    
+    set({ itinerary: { ...itinerary, days: newDays } })
+  },
+  
+  setItinerary: (itinerary) => set({ itinerary }),
+  
   setActiveDayIndex: (index) => set({ activeDayIndex: index }),
+  
+  clearError: () => set({ error: null }),
   
   resetPlanning: () => set({
     currentStep: 'destination',
     selectedDestination: null,
+    destinationCoordinates: null,
     preferences: null,
     discoveredPlaces: [],
     selectedPlaces: [],
     itinerary: null,
     activeDayIndex: 0,
+    isDiscovering: false,
+    isGenerating: false,
+    isEnhancing: false,
+    error: null,
   }),
 }))

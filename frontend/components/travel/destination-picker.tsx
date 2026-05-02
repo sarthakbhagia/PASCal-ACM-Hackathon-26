@@ -1,24 +1,93 @@
 'use client'
 
-import { useState } from 'react'
-import { Search, MapPin, Thermometer, Calendar, ChevronRight } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
+import { Search, MapPin, Thermometer, Calendar, ChevronRight, Loader2 } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { useTravelStore } from '@/lib/travel-store'
 import { popularDestinations } from '@/lib/sample-data'
 import { cn } from '@/lib/utils'
 import Image from 'next/image'
 
+interface LocationSuggestion {
+  place_id: string
+  display_name: string
+  lat: string
+  lon: string
+  type: string
+}
+
 export function DestinationPicker() {
   const [searchQuery, setSearchQuery] = useState('')
   const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [suggestions, setSuggestions] = useState<LocationSuggestion[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(false)
   const { setDestination } = useTravelStore()
   
   const filteredDestinations = popularDestinations.filter(
     d => d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
          d.country.toLowerCase().includes(searchQuery.toLowerCase())
   )
+  
+  // Debounced LocationIQ autocomplete
+  useEffect(() => {
+    if (searchQuery.length < 3) {
+      setSuggestions([])
+      setShowSuggestions(false)
+      return
+    }
+    
+    // Check if it matches a popular destination
+    const matchesPopular = popularDestinations.some(
+      d => d.name.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+    if (matchesPopular) {
+      setSuggestions([])
+      setShowSuggestions(false)
+      return
+    }
+    
+    const timer = setTimeout(async () => {
+      const key = process.env.NEXT_PUBLIC_LOCATIONIQ_API_KEY
+      if (!key) return
+      
+      setIsSearching(true)
+      try {
+        const res = await fetch(
+          `https://api.locationiq.com/v1/autocomplete?key=${key}&q=${encodeURIComponent(searchQuery)}&limit=5&tag=place:city,place:town,place:village,place:country`
+        )
+        if (res.ok) {
+          const data = await res.json()
+          setSuggestions(data)
+          setShowSuggestions(true)
+        }
+      } catch {
+        // Silently fail
+      } finally {
+        setIsSearching(false)
+      }
+    }, 400)
+    
+    return () => clearTimeout(timer)
+  }, [searchQuery])
+  
+  const handleSelectSuggestion = (suggestion: LocationSuggestion) => {
+    const name = suggestion.display_name.split(',')[0].trim()
+    const coords: [number, number] = [parseFloat(suggestion.lat), parseFloat(suggestion.lon)]
+    setShowSuggestions(false)
+    setSearchQuery(name)
+    setDestination(name, coords)
+  }
+  
+  const handleSearchSubmit = () => {
+    if (searchQuery.trim().length > 0) {
+      setShowSuggestions(false)
+      setDestination(searchQuery.trim())
+    }
+  }
   
   return (
     <div className="min-h-[calc(100vh-80px)] flex flex-col">
@@ -32,7 +101,7 @@ export function DestinationPicker() {
           <span className="block text-primary">adventure take you?</span>
         </h1>
         <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8 text-pretty">
-          Discover amazing destinations and let us create the perfect itinerary 
+          Discover amazing destinations and let AI create the perfect itinerary 
           tailored to your preferences and travel style.
         </p>
         
@@ -41,11 +110,41 @@ export function DestinationPicker() {
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
           <Input
             type="text"
-            placeholder="Search destinations..."
+            placeholder="Search any destination worldwide..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-12 h-14 text-lg bg-card border-border/50 rounded-2xl"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSearchSubmit()
+            }}
+            className="pl-12 pr-24 h-14 text-lg bg-card border-border/50 rounded-2xl"
           />
+          {isSearching && (
+            <Loader2 className="absolute right-20 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground animate-spin" />
+          )}
+          <Button 
+            size="sm" 
+            className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl"
+            onClick={handleSearchSubmit}
+            disabled={searchQuery.trim().length === 0}
+          >
+            Explore
+          </Button>
+          
+          {/* Autocomplete dropdown */}
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="absolute z-50 w-full mt-2 bg-card border border-border/50 rounded-xl shadow-xl overflow-hidden">
+              {suggestions.map((s) => (
+                <button
+                  key={s.place_id}
+                  onClick={() => handleSelectSuggestion(s)}
+                  className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-secondary/50 transition-colors border-b border-border/30 last:border-b-0"
+                >
+                  <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
+                  <span className="text-sm line-clamp-1">{s.display_name}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
       
@@ -65,7 +164,7 @@ export function DestinationPicker() {
                   'group cursor-pointer overflow-hidden border-border/50 bg-card/50 backdrop-blur transition-all duration-300',
                   hoveredId === destination.id && 'scale-[1.02] border-primary/50 shadow-xl shadow-primary/10'
                 )}
-                onClick={() => setDestination(destination.name)}
+                onClick={() => setDestination(destination.name, destination.coordinates)}
                 onMouseEnter={() => setHoveredId(destination.id)}
                 onMouseLeave={() => setHoveredId(null)}
               >
