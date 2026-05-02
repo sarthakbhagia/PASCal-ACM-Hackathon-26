@@ -40,6 +40,7 @@ export function NavigationView() {
   const [completedPlaces, setCompletedPlaces] = useState<Set<string>>(new Set())
   const [isVoiceEnabled, setIsVoiceEnabled] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isFinished, setIsFinished] = useState(false)
   
   if (!itinerary) {
     return (
@@ -71,6 +72,8 @@ export function NavigationView() {
   const goToNext = () => {
     if (currentPlaceIndex < activeDay.places.length - 1) {
       setCurrentPlaceIndex(currentPlaceIndex + 1)
+    } else {
+      setIsFinished(true)
     }
   }
   
@@ -306,14 +309,48 @@ export function NavigationView() {
           
           <Button
             onClick={goToNext}
-            disabled={currentPlaceIndex === activeDay.places.length - 1}
             className="gap-2"
           >
-            Next
+            {currentPlaceIndex === activeDay.places.length - 1 ? 'Finish Trip' : 'Next'}
             <ChevronRight className="w-4 h-4" />
           </Button>
         </div>
       </div>
+
+      {/* End Screen Overlay */}
+      {isFinished && (
+        <div className="fixed inset-0 z-[100] bg-background/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in zoom-in duration-300">
+          <Card className="max-w-md w-full border-primary/20 shadow-2xl shadow-primary/20">
+            <CardContent className="p-8 text-center">
+              <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <CheckCircle2 className="w-10 h-10 text-primary" />
+              </div>
+              <h2 className="text-3xl font-bold mb-2">Trip Completed!</h2>
+              <p className="text-muted-foreground mb-8">
+                You&apos;ve successfully navigated all stops for today. We hope you had an amazing experience in {itinerary.destination}!
+              </p>
+              <div className="flex flex-col gap-3">
+                <Button 
+                  className="w-full h-12 text-lg rounded-xl"
+                  onClick={() => setStep('itinerary')}
+                >
+                  Back to Itinerary
+                </Button>
+                <Button 
+                  variant="outline"
+                  className="w-full h-12 text-lg rounded-xl"
+                  onClick={() => {
+                    setIsFinished(false)
+                    setCurrentPlaceIndex(0)
+                  }}
+                >
+                  Restart Navigation
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }
