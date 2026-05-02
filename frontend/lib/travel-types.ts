@@ -26,7 +26,6 @@ export interface TravelPreferences {
   destination: string
   startDate: Date
   endDate: Date
-  budget: 'budget' | 'moderate' | 'luxury'
   pace: 'relaxed' | 'moderate' | 'intensive'
   interests: PlaceCategory[]
   accommodationType: 'hotel' | 'hostel' | 'apartment' | 'resort'
@@ -52,7 +51,6 @@ export interface Itinerary {
   startDate: Date
   endDate: Date
   days: ItineraryDay[]
-  totalBudget: string
   createdAt: Date
 }
 

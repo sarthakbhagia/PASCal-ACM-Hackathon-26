@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Star, Clock, MapPin, Check, ArrowRight, ArrowLeft, Filter, Loader2, AlertCircle, RefreshCw } from 'lucide-react'
+import { Star, Clock, MapPin, Check, ArrowRight, ArrowLeft, Filter, Loader2, AlertCircle, RefreshCw, Building } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -198,6 +198,7 @@ export function PlaceDiscovery() {
             </div>
           </div>
         )}
+
 
         {/* Places Grid */}
         {!isDiscovering && (

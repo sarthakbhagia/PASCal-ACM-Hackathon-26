@@ -10,8 +10,8 @@ interface DiscoverRequest {
   destination: string
   coordinates: [number, number]
   interests: string[]
-  budget: string
   pace: string
+  accommodationType: string
 }
 
 Deno.serve(async (req) => {
@@ -20,13 +20,13 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { destination, coordinates, interests, budget, pace } =
+    const { destination, coordinates, interests, pace } =
       (await req.json()) as DiscoverRequest
 
     const LOCATIONIQ_KEY = Deno.env.get("LOCATIONIQ_API_KEY")!
     const TAVILY_KEY = Deno.env.get("TAVILY_API_KEY")!
 
-    // Step 1: Search for POIs using LocationIQ
+    // Step 1: Use LocationIQ to find actual Points of Interest (POIs) for each interest
     const categoryMap: Record<string, string> = {
       landmark: "tourism",
       restaurant: "restaurant",
@@ -38,10 +38,7 @@ Deno.serve(async (req) => {
       nightlife: "bar",
     }
 
-    const poiResults: any[] = []
-
-    // Search for each interest category
-    const searchPromises = interests.map(async (interest) => {
+    const poiTasks = interests.map(async (interest) => {
       const tag = categoryMap[interest] || interest
       const query = `${tag} in ${destination}`
       const url = `https://us1.locationiq.com/v1/search?key=${LOCATIONIQ_KEY}&q=${encodeURIComponent(query)}&format=json&limit=6&addressdetails=1`
@@ -51,8 +48,13 @@ Deno.serve(async (req) => {
         if (res.ok) {
           const data = await res.json()
           return data.map((item: any) => ({
-            ...item,
-            searchCategory: interest,
+            name: item.display_name?.split(",")[0] || "Unknown Spot",
+            fullName: item.display_name,
+            lat: item.lat,
+            lon: item.lon,
+            category: interest,
+            place_id: item.place_id,
+            address: item.display_name?.split(",").slice(0, 3).join(",") || destination,
           }))
         }
         return []
@@ -61,35 +63,24 @@ Deno.serve(async (req) => {
       }
     })
 
-    const results = await Promise.all(searchPromises)
-    for (const batch of results) {
-      poiResults.push(...batch)
-    }
-
-    // Deduplicate by place_id
-    const seen = new Set<string>()
-    const uniquePOIs = poiResults.filter((poi) => {
-      if (seen.has(poi.place_id)) return false
-      seen.add(poi.place_id)
+    const poiResults = (await Promise.all(poiTasks)).flat()
+    
+    // Deduplicate POIs
+    const seen = new Set()
+    const uniquePOIs = poiResults.filter(poi => {
+      if (seen.has(poi.name)) return false
+      seen.add(poi.name)
       return true
     })
 
-    // Take top 10 unique POIs to stay within fast API limits
-    const topPOIs = uniquePOIs.slice(0, 10)
-
-    // Step 2: Fetch descriptions and images using Tavily Search API concurrently
-    const tavilyPromises = topPOIs.map(async (p, i) => {
-      const name = p.display_name?.split(",")[0] || "Unknown Place"
-      const category = p.searchCategory || "landmark"
-      
-      const query = `${name} ${destination} tourist information description`
+    // Step 2: Enrich the TOP POIs with Tavily descriptions and images
+    const enrichmentTasks = uniquePOIs.slice(0, 15).map(async (poi) => {
+      const query = `${poi.name} ${destination} tourist information Highlights and Description`
       
       try {
         const res = await fetch("https://api.tavily.com/search", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             api_key: TAVILY_KEY,
             query: query,
@@ -99,58 +90,43 @@ Deno.serve(async (req) => {
           }),
         })
 
-        let description = `A popular ${category} located in the heart of ${destination}. Highly recommended for visitors looking for an authentic experience.`
+        let description = `A popular ${poi.category} in ${destination}. Highly recommended for visitors looking for an authentic experience.`
         let imageUrl = "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=400&q=80"
-        
-        // Default images based on category as fallback
-        if (category === 'restaurant') imageUrl = "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=400&q=80"
-        if (category === 'museum') imageUrl = "https://images.unsplash.com/photo-1518998053901-5348d3961a04?w=400&q=80"
-        if (category === 'park') imageUrl = "https://images.unsplash.com/photo-1519331379826-f10be5486c6f?w=400&q=80"
 
         if (res.ok) {
-          const tavilyData = await res.json()
-          if (tavilyData.results && tavilyData.results.length > 0) {
-            description = tavilyData.results[0].content
+          const data = await res.json()
+          if (data.results && data.results.length > 0) {
+            description = data.results[0].content
           }
-          if (tavilyData.images && tavilyData.images.length > 0) {
-            imageUrl = tavilyData.images[0]
+          if (data.images && data.images.length > 0) {
+            imageUrl = data.images[0]
           }
         }
 
         return {
-          id: `place_${p.place_id || i}_${Date.now()}`,
-          name: name,
+          id: `place_${poi.place_id}_${Date.now()}`,
+          name: poi.name,
           description: description,
-          category: category,
-          coordinates: [Number(p.lat), Number(p.lon)],
-          rating: Number((Math.random() * (5.0 - 4.2) + 4.2).toFixed(1)), // Mock rating between 4.2 and 5.0
-          duration: category === 'restaurant' ? 60 : 120,
+          category: poi.category,
+          coordinates: [Number(poi.lat), Number(poi.lon)],
+          rating: Number((Math.random() * (5.0 - 4.3) + 4.3).toFixed(1)),
+          duration: poi.category === 'restaurant' ? 60 : 120,
           imageUrl: imageUrl,
-          address: p.display_name?.split(",").slice(0, 3).join(",") || destination,
-          openingHours: "9:00 AM - 6:00 PM",
+          address: poi.address,
+          openingHours: "Open Daily",
           price: "Varies",
         }
-      } catch (err) {
-        // Fallback if Tavily fails for this specific item
-        return {
-          id: `place_${p.place_id || i}_${Date.now()}`,
-          name: name,
-          description: `A popular ${category} located in the heart of ${destination}. Highly recommended for visitors looking for an authentic experience.`,
-          category: category,
-          coordinates: [Number(p.lat), Number(p.lon)],
-          rating: Number((Math.random() * (5.0 - 4.0) + 4.0).toFixed(1)),
-          duration: category === 'restaurant' ? 60 : 120,
-          imageUrl: "https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=400&q=80",
-          address: p.display_name?.split(",").slice(0, 3).join(",") || destination,
-          openingHours: "9:00 AM - 6:00 PM",
-          price: "Varies",
-        }
+      } catch {
+        return null
       }
     })
 
-    const validPlaces = await Promise.all(tavilyPromises)
+    const enrichedPlaces = await Promise.all(enrichmentTasks)
+    const validPlaces = enrichedPlaces.filter(p => p !== null)
 
-    return new Response(JSON.stringify({ places: validPlaces }), {
+    return new Response(JSON.stringify({ 
+      places: validPlaces 
+    }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
   } catch (error) {

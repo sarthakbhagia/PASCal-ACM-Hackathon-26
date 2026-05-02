@@ -10,7 +10,6 @@ interface GenerateRequest {
   destination: string
   places: any[]
   preferences: {
-    budget: string
     pace: string
     interests: string[]
     accommodationType: string
@@ -77,7 +76,6 @@ Deno.serve(async (req) => {
 Trip details:
 - Start date: ${startDate}
 - End date: ${endDate}
-- Budget level: ${preferences.budget}
 - Travel pace: ${preferences.pace} (relaxed = 2-3 places/day, moderate = 3-4, intensive = 4-5)
 
 Selected places to include:
@@ -97,7 +95,6 @@ Return ONLY a valid JSON object matching this exact schema:
   "destination": "${destination}",
   "startDate": "${startDate}",
   "endDate": "${endDate}",
-  "totalBudget": "estimated total in appropriate currency",
   "days": [
     {
       "date": "YYYY-MM-DD",
@@ -199,7 +196,6 @@ Return ONLY a valid JSON object matching this exact schema:
         destination,
         startDate,
         endDate,
-        totalBudget: "Varies",
         days: days
       }
     }

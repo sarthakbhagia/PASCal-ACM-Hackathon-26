@@ -12,11 +12,6 @@ import type { PlaceCategory, TravelPreferences } from '@/lib/travel-types'
 import { cn } from '@/lib/utils'
 import { format, addDays } from 'date-fns'
 
-const budgetOptions = [
-  { value: 'budget', label: 'Budget', description: 'Hostels, street food, public transport', icon: '💰' },
-  { value: 'moderate', label: 'Moderate', description: 'Hotels, restaurants, mix of transport', icon: '💎' },
-  { value: 'luxury', label: 'Luxury', description: 'Luxury hotels, fine dining, private tours', icon: '👑' },
-] as const
 
 const paceOptions = [
   { value: 'relaxed', label: 'Relaxed', description: '2-3 activities per day', icon: '🌴' },
@@ -49,7 +44,6 @@ export function PreferencesForm() {
     from: new Date(),
     to: addDays(new Date(), 5),
   })
-  const [budget, setBudget] = useState<TravelPreferences['budget']>('moderate')
   const [pace, setPace] = useState<TravelPreferences['pace']>('moderate')
   const [interests, setInterests] = useState<PlaceCategory[]>(['landmark', 'restaurant'])
   const [accommodation, setAccommodation] = useState<TravelPreferences['accommodationType']>('hotel')
@@ -69,7 +63,6 @@ export function PreferencesForm() {
       destination: selectedDestination,
       startDate: dateRange.from,
       endDate: dateRange.to,
-      budget,
       pace,
       interests,
       accommodationType: accommodation,
@@ -143,36 +136,6 @@ export function PreferencesForm() {
             </CardContent>
           </Card>
           
-          {/* Budget */}
-          <Card className="border-border/50 bg-card/50 backdrop-blur">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <DollarSign className="w-5 h-5 text-primary" />
-                Budget Level
-              </CardTitle>
-              <CardDescription>What&apos;s your spending preference?</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {budgetOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    onClick={() => setBudget(option.value)}
-                    className={cn(
-                      'p-4 rounded-xl border text-left transition-all',
-                      budget === option.value
-                        ? 'border-primary bg-primary/10'
-                        : 'border-border/50 hover:border-primary/50'
-                    )}
-                  >
-                    <div className="text-2xl mb-2">{option.icon}</div>
-                    <div className="font-medium">{option.label}</div>
-                    <div className="text-sm text-muted-foreground">{option.description}</div>
-                  </button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
           
           {/* Pace */}
           <Card className="border-border/50 bg-card/50 backdrop-blur">

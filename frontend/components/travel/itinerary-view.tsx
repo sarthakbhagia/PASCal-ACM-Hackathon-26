@@ -29,10 +29,11 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useTravelStore } from '@/lib/travel-store'
-import { exportItineraryToPDF } from '@/lib/pdf-generator'
+import { exportItineraryToPDF, generateItineraryPDF } from '@/lib/pdf-generator'
 import { cn } from '@/lib/utils'
 import Image from 'next/image'
 import dynamic from 'next/dynamic'
+import { toast } from 'sonner'
 
 const TravelMap = dynamic(() => import('./travel-map').then(mod => mod.TravelMap), {
   ssr: false,
@@ -88,6 +89,45 @@ export function ItineraryView() {
       reorderPlaceInDay(dayIndex, placeIndex, placeIndex + 1)
     }
   }
+
+  const handleShare = async () => {
+    if (!itinerary) return
+
+    try {
+      const doc = generateItineraryPDF(itinerary)
+      const pdfBlob = doc.output('blob')
+      const fileName = `${itinerary.destination.replace(/[^a-z0-9]/gi, '_').toLowerCase()}_itinerary.pdf`
+      const file = new File([pdfBlob], fileName, { type: 'application/pdf' })
+
+      const shareText = `Check out my trip to ${itinerary.destination}!`
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: `Trip to ${itinerary.destination}`,
+          text: shareText,
+        })
+        toast.success('Itinerary shared successfully!')
+      } else if (navigator.share) {
+        // Fallback to text share if files aren't supported
+        await navigator.share({
+          title: `Trip to ${itinerary.destination}`,
+          text: shareText,
+          url: window.location.href,
+        })
+        toast.success('Link shared successfully!')
+      } else {
+        // Fallback: Copy to clipboard
+        await navigator.clipboard.writeText(`${shareText}\n\nView here: ${window.location.href}`)
+        toast.success('Trip details copied to clipboard!')
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        console.error('Share error:', err)
+        toast.error('Failed to share itinerary')
+      }
+    }
+  }
   
   return (
     <div className="min-h-[calc(100vh-80px)] py-8 px-4">
@@ -118,10 +158,6 @@ export function ItineraryView() {
                 <Calendar className="w-4 h-4" />
                 {format(itinerary.startDate, 'MMM d')} - {format(itinerary.endDate, 'MMM d, yyyy')}
               </span>
-              <span className="flex items-center gap-1">
-                <DollarSign className="w-4 h-4" />
-                Est. Budget: {itinerary.totalBudget}
-              </span>
             </p>
           </div>
           
@@ -136,7 +172,12 @@ export function ItineraryView() {
               <Sparkles className="w-4 h-4" />
               Review & Enhance
             </Button>
-            <Button variant="outline" size="sm" className="gap-2">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-2"
+              onClick={handleShare}
+            >
               <Share2 className="w-4 h-4" />
               Share
             </Button>

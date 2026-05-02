@@ -114,8 +114,8 @@ export const useTravelStore = create<TravelState>((set, get) => ({
           destination: selectedDestination,
           coordinates: coords || [0, 0],
           interests: preferences?.interests || ['landmark', 'restaurant'],
-          budget: preferences?.budget || 'moderate',
           pace: preferences?.pace || 'moderate',
+          accommodationType: preferences?.accommodationType || 'hotel',
         },
       })
       
@@ -128,10 +128,10 @@ export const useTravelStore = create<TravelState>((set, get) => ({
         places = places.filter(p => preferences.interests.includes(p.category))
       }
       
-      // Sort by rating
-      places.sort((a, b) => b.rating - a.rating)
-      
-      set({ discoveredPlaces: places, isDiscovering: false })
+      set({ 
+        discoveredPlaces: places, 
+        isDiscovering: false 
+      })
     } catch (err) {
       console.error('Error discovering places:', err)
       set({ 
@@ -164,7 +164,6 @@ export const useTravelStore = create<TravelState>((set, get) => ({
           destination: selectedDestination,
           places: selectedPlaces,
           preferences: {
-            budget: preferences.budget,
             pace: preferences.pace,
             interests: preferences.interests,
             accommodationType: preferences.accommodationType,
