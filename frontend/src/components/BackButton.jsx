@@ -4,7 +4,9 @@ const backRoutes = {
   '/destination': '/',
   '/details': '/destination',
   '/interests': '/details',
-  '/itinerary': '/interests',
+  '/search': '/interests',
+  '/review': '/search',
+  '/itinerary': '/review',
 }
 
 function BackButton() {

@@ -1,16 +1,46 @@
 import { useState, useMemo, useRef, useEffect } from 'react'
 import { DndContext, closestCenter, DragOverlay, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
+import { useSelectedItems } from './Search'
 import EventBlock from '../components/EventBlock'
 import EventDetail from '../components/EventDetail'
 import mockItinerary from '../data/mockItinerary'
 
+function buildEventsFromSelection(selectedItems, baseItinerary) {
+  if (selectedItems.length === 0) return baseItinerary
+
+  const travelItems = baseItinerary.filter((e) => e.type === 'travel')
+  const userItems = selectedItems.map((item, index) => ({
+    id: `custom-${item.id}`,
+    day: Math.floor(index / 4) + 1,
+    type: item.type,
+    subtype: item.subtype,
+    title: item.title,
+    time: `${9 + (index % 4) * 2}:00 AM`,
+    duration: item.duration,
+    location: item.location,
+    description: item.description,
+  }))
+
+  const maxDay = Math.max(...userItems.map((e) => e.day), 1)
+  const hotelItems = baseItinerary.filter((e) => e.type === 'hotel')
+
+  return [...travelItems, ...userItems, ...hotelItems].sort((a, b) => a.day - b.day)
+}
+
 function Itinerary() {
-  const [events, setEvents] = useState(mockItinerary)
+  const { selectedItems } = useSelectedItems()
+  const [events, setEvents] = useState(() => buildEventsFromSelection(selectedItems, mockItinerary))
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [activeId, setActiveId] = useState(null)
   const [activeDay, setActiveDay] = useState(1)
   const sectionRefs = useRef({})
+
+  useEffect(() => {
+    if (selectedItems.length > 0) {
+      setEvents(buildEventsFromSelection(selectedItems, mockItinerary))
+    }
+  }, [])
 
   const days = useMemo(() => {
     const maxDay = Math.max(...events.map((e) => e.day))

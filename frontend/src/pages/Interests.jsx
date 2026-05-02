@@ -53,7 +53,7 @@ function Interests() {
       </div>
 
       <button
-        onClick={() => navigate('/itinerary')}
+        onClick={() => navigate('/search')}
         disabled={selected.length === 0}
         className="bg-accent hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-8 py-3 rounded-lg transition-colors duration-200 text-base"
       >
