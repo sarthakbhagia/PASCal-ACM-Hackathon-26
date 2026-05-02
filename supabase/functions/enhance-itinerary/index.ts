@@ -6,43 +6,63 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 }
 
-// Gemini call with automatic retry and model fallback
+// Call Gemini API with model fallback
 async function callGemini(prompt: string, apiKey: string, maxTokens = 8192): Promise<string> {
-  const models = ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"]
-  
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash"]
+
   for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+
     for (let attempt = 0; attempt < 2; attempt++) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
-      
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.5,
-            maxOutputTokens: maxTokens,
-          },
-        }),
-      })
+      try {
+        console.log(`Trying Gemini ${model} (attempt ${attempt + 1})`)
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.5,
+              maxOutputTokens: maxTokens,
+              responseMimeType: "application/json",
+            },
+          }),
+        })
 
-      if (res.ok) {
-        const data = await res.json()
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || "{}"
+        if (res.ok) {
+          const data = await res.json()
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+          if (!text) {
+            console.warn(`Gemini ${model} returned empty text`)
+            break
+          }
+          console.log(`Gemini ${model} succeeded`)
+          return text
+        }
+
+        const errBody = await res.text()
+        console.warn(`Gemini ${model} error ${res.status}: ${errBody.slice(0, 200)}`)
+
+        if (res.status === 429) {
+          const waitMs = (attempt + 1) * 2000
+          console.log(`Rate limited, waiting ${waitMs}ms`)
+          await new Promise((r) => setTimeout(r, waitMs))
+          continue
+        }
+
+        break
+      } catch (err) {
+        console.error(`Gemini ${model} fetch error:`, err)
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 1000))
+          continue
+        }
+        break
       }
-
-      if (res.status === 429) {
-        const waitMs = (attempt + 1) * 1000
-        console.log(`Rate limited on ${model}, waiting ${waitMs}ms`)
-        await new Promise((r) => setTimeout(r, waitMs))
-        continue
-      }
-
-      break
     }
   }
 
-  throw new Error("QUOTA_EXHAUSTED")
+  throw new Error("All Gemini models failed")
 }
 
 Deno.serve(async (req) => {
@@ -53,7 +73,13 @@ Deno.serve(async (req) => {
   try {
     const { itinerary } = await req.json()
 
-    const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY")!
+    const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY")
+    if (!GEMINI_KEY) {
+      return new Response(JSON.stringify({ error: "GEMINI_API_KEY is not configured in Supabase secrets." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
 
     let enhanced: any
 
@@ -64,33 +90,48 @@ Here is the current itinerary:
 ${JSON.stringify(itinerary, null, 2)}
 
 Please review and enhance it by:
-1. **Fix unrealistic timings**
-2. **Recalculate travel times**
-3. **Optimize the schedule**
-4. **Add meal suggestions**
-5. **Add practical tips**
-6. **Recalculate day totals**
-7. **Ensure logical flow**
+1. Fix unrealistic timings
+2. Recalculate travel times between places
+3. Optimize the daily schedule order
+4. Add meal break suggestions in notes
+5. Add practical tips in the notes field
+6. Recalculate totalDuration and totalDistance for each day
+7. Ensure logical chronological flow
 
-Return ONLY a valid JSON object matching the input schema exactly. Keep all original fields unchanged — only modify timing, ordering, notes, and day-level statistics.`
+Return ONLY a valid JSON object matching the input schema exactly. Keep all original fields (id, name, coordinates, etc.) unchanged — only modify timing, ordering, notes, and day-level statistics.`
 
       const rawText = await callGemini(prompt, GEMINI_KEY, 8192)
-      const cleanJson = rawText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim()
-      enhanced = JSON.parse(cleanJson)
       
+      try {
+        enhanced = JSON.parse(rawText)
+      } catch {
+        const jsonStart = rawText.indexOf("{")
+        const jsonEnd = rawText.lastIndexOf("}")
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          enhanced = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1))
+        } else {
+          throw new Error("Could not parse Gemini response")
+        }
+      }
+
+      console.log("Itinerary enhanced successfully via Gemini")
     } catch (e: any) {
-      console.log("Gemini failed or quota exceeded, using fallback enhance strategy.");
-      
-      // FALLBACK: Just slightly modify the notes to prove it "did" something
+      console.error("Gemini enhance failed, using fallback:", e.message)
+
+      // FALLBACK: Just add enhanced notes
       enhanced = JSON.parse(JSON.stringify(itinerary)) // Deep copy
-      
-      enhanced.days.forEach((day: any) => {
-        day.places.forEach((place: any) => {
-          if (!place.notes || place.notes.includes("Fallback")) {
-            place.notes = "✨ AI Enhanced: Try to visit during off-peak hours to avoid crowds."
+
+      if (enhanced.days && Array.isArray(enhanced.days)) {
+        enhanced.days.forEach((day: any) => {
+          if (day.places && Array.isArray(day.places)) {
+            day.places.forEach((place: any) => {
+              if (!place.notes || place.notes.includes("Fallback") || place.notes.includes("Auto-generated")) {
+                place.notes = "✨ Tip: Try visiting during off-peak hours to avoid crowds."
+              }
+            })
           }
         })
-      })
+      }
     }
 
     // Preserve critical fields from original

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Star, Clock, MapPin, Check, ArrowRight, ArrowLeft, Filter, Loader2, AlertCircle, RefreshCw, Building } from 'lucide-react'
+import { Star, Clock, MapPin, Check, ArrowRight, ArrowLeft, Filter, Loader2, AlertCircle, RefreshCw, Building, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -65,7 +65,6 @@ export function PlaceDiscovery() {
     clearError,
   } = useTravelStore()
   
-  const [filterCategory, setFilterCategory] = useState<PlaceCategory | 'all'>('all')
   const [hoveredId, setHoveredId] = useState<string | null>(null)
   
   useEffect(() => {
@@ -73,12 +72,6 @@ export function PlaceDiscovery() {
       discoverPlaces()
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
-  
-  const filteredPlaces = filterCategory === 'all' 
-    ? discoveredPlaces 
-    : discoveredPlaces.filter(p => p.category === filterCategory)
-  
-  const categories = Array.from(new Set(discoveredPlaces.map(p => p.category)))
   
   const isSelected = (place: Place) => selectedPlaces.some(p => p.id === place.id)
   
@@ -143,41 +136,6 @@ export function PlaceDiscovery() {
           </div>
         )}
         
-        {/* Filters */}
-        {!isDiscovering && discoveredPlaces.length > 0 && (
-          <div className="flex items-center gap-2 mb-6 overflow-x-auto pb-2">
-            <div className="flex items-center gap-2 text-muted-foreground mr-2">
-              <Filter className="w-4 h-4" />
-              <span className="text-sm">Filter:</span>
-            </div>
-            <button
-              onClick={() => setFilterCategory('all')}
-              className={cn(
-                'px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all border',
-                filterCategory === 'all'
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'border-border/50 hover:border-primary/50'
-              )}
-            >
-              All Places
-            </button>
-            {categories.map((category) => (
-              <button
-                key={category}
-                onClick={() => setFilterCategory(category)}
-                className={cn(
-                  'px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-all border',
-                  filterCategory === category
-                    ? categoryColors[category]
-                    : 'border-border/50 hover:border-primary/50'
-                )}
-              >
-                {categoryLabels[category]}
-              </button>
-            ))}
-          </div>
-        )}
-        
         {/* Loading Animation */}
         {isDiscovering && (
           <div className="flex flex-col items-center justify-center min-h-[50vh] gap-6">
@@ -203,7 +161,7 @@ export function PlaceDiscovery() {
         {/* Places Grid */}
         {!isDiscovering && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
-            {filteredPlaces.map((place) => {
+            {discoveredPlaces.map((place: Place) => {
               const selected = isSelected(place)
               
               return (
@@ -269,9 +227,21 @@ export function PlaceDiscovery() {
                           <span>{formatDuration(place.duration)}</span>
                         </div>
                       </div>
-                      {place.price && (
-                        <span className="text-muted-foreground">{place.price}</span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {place.price && (
+                          <span className="text-muted-foreground">{place.price}</span>
+                        )}
+                        <a
+                          href={`https://www.google.com/search?q=${encodeURIComponent(`${place.name} ${selectedDestination}`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-muted-foreground hover:text-primary transition-colors"
+                          title="Search on Google"
+                        >
+                          <Search className="w-3.5 h-3.5" />
+                        </a>
+                      </div>
                     </div>
                     
                     <div className="flex items-center gap-1 mt-3 text-xs text-muted-foreground">

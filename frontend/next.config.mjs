@@ -6,6 +6,9 @@ const nextConfig = {
   images: {
     unoptimized: true,
   },
+  turbopack: {
+    root: '/home/hsrkl/Projects/PASC-Hackathon-26',
+  },
 }
 
 export default nextConfig

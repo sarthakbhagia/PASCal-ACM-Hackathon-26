@@ -13,48 +13,71 @@ interface GenerateRequest {
     pace: string
     interests: string[]
     accommodationType: string
+    numPeople?: number
+    budget?: number
+    tripIdea?: string
   }
   startDate: string
   endDate: string
 }
 
-// Gemini call with automatic retry and model fallback
-async function callGemini(prompt: string, apiKey: string, maxTokens = 8192): Promise<string> {
-  const models = ["gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-1.5-flash"]
-  
+// Call Gemini API with model fallback
+async function callGemini(prompt: string, apiKey: string, maxTokens = 4096): Promise<string> {
+  const models = ["gemini-2.5-flash", "gemini-2.0-flash"]
+
   for (const model of models) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+
     for (let attempt = 0; attempt < 2; attempt++) {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
-      
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.6,
-            maxOutputTokens: maxTokens,
-          },
-        }),
-      })
+      try {
+        console.log(`Trying Gemini ${model} (attempt ${attempt + 1})`)
+        const res = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.6,
+              maxOutputTokens: maxTokens,
+              responseMimeType: "application/json",
+            },
+          }),
+        })
 
-      if (res.ok) {
-        const data = await res.json()
-        return data.candidates?.[0]?.content?.parts?.[0]?.text || "{}"
+        if (res.ok) {
+          const data = await res.json()
+          const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+          if (!text) {
+            console.warn(`Gemini ${model} returned empty text`)
+            break // try next model
+          }
+          console.log(`Gemini ${model} succeeded`)
+          return text
+        }
+
+        const errBody = await res.text()
+        console.warn(`Gemini ${model} error ${res.status}: ${errBody.slice(0, 200)}`)
+
+        if (res.status === 429) {
+          const waitMs = (attempt + 1) * 2000
+          console.log(`Rate limited, waiting ${waitMs}ms`)
+          await new Promise((r) => setTimeout(r, waitMs))
+          continue
+        }
+
+        break // Non-retryable error, try next model
+      } catch (err) {
+        console.error(`Gemini ${model} fetch error:`, err)
+        if (attempt === 0) {
+          await new Promise((r) => setTimeout(r, 1000))
+          continue
+        }
+        break
       }
-
-      if (res.status === 429) {
-        const waitMs = (attempt + 1) * 1000
-        console.log(`Rate limited on ${model}, waiting ${waitMs}ms`)
-        await new Promise((r) => setTimeout(r, waitMs))
-        continue
-      }
-
-      break
     }
   }
 
-  throw new Error("QUOTA_EXHAUSTED")
+  throw new Error("All Gemini models failed")
 }
 
 Deno.serve(async (req) => {
@@ -66,32 +89,52 @@ Deno.serve(async (req) => {
     const { destination, places, preferences, startDate, endDate } =
       (await req.json()) as GenerateRequest
 
-    const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY")!
+    console.log(`Generating itinerary for ${destination}: ${startDate} to ${endDate}, ${places.length} places`)
+
+    const GEMINI_KEY = Deno.env.get("GEMINI_API_KEY")
+    if (!GEMINI_KEY) {
+      return new Response(JSON.stringify({ error: "GEMINI_API_KEY is not configured in Supabase secrets." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
 
     let itinerary: any
-    
+
     try {
-      const prompt = `You are an expert travel planner. Create an optimized day-by-day itinerary for a trip to "${destination}".
+      const prompt = `Create a detailed day-by-day travel itinerary for ${destination} from ${startDate} to ${endDate}.
 
-Trip details:
-- Start date: ${startDate}
-- End date: ${endDate}
-- Travel pace: ${preferences.pace} (relaxed = 2-3 places/day, moderate = 3-4, intensive = 4-5)
+Travel Preferences:
+- Pace: ${preferences.pace} (relaxed=2-3 places/day, moderate=3-4, intensive=4-5)
+- Group size: ${preferences.numPeople || 1} people
+- Total budget: $${preferences.budget || "N/A"}
+- Trip vibe: ${preferences.tripIdea || "General travel"}
+- Interests: ${preferences.interests.join(", ")}
 
-Selected places to include:
-${JSON.stringify(places.map((p) => ({
-  id: p.id, name: p.name, category: p.category, duration: p.duration, rating: p.rating
+PLACES THE USER SELECTED (include ALL of them):
+${JSON.stringify(places.map((p: any) => ({
+  id: p.id,
+  name: p.name,
+  description: p.description,
+  category: p.category,
+  duration: p.duration,
+  rating: p.rating,
+  price: p.price,
+  coordinates: p.coordinates,
+  address: p.address,
 })), null, 2)}
 
-Create an optimized itinerary following these rules:
-1. Group nearby places together on the same day
-2. Start each day at a reasonable hour (9 AM)
-3. Add travel time estimates between places (in minutes)
-4. Distribute places as evenly as possible across the days
+Rules:
+1. Include ALL selected places distributed across the trip days
+2. Group nearby places on the same day
+3. Start each day around 9:00 AM
+4. Add realistic travel time between places (in minutes)
+5. Respect the pace preference
+6. Include helpful tips in the notes field
 
-Return ONLY a valid JSON object matching this exact schema:
+Return a JSON object with this exact structure:
 {
-  "id": "unique_id",
+  "id": "itin_${Date.now()}",
   "destination": "${destination}",
   "startDate": "${startDate}",
   "endDate": "${endDate}",
@@ -100,114 +143,123 @@ Return ONLY a valid JSON object matching this exact schema:
       "date": "YYYY-MM-DD",
       "places": [
         {
-          "id": "place_id_from_input",
+          "id": "place_id",
           "name": "Place Name",
-          "description": "description",
+          "description": "Description",
           "category": "category",
           "coordinates": [lat, lon],
           "rating": 4.5,
           "duration": 90,
-          "imageUrl": "image_url",
-          "address": "address",
-          "openingHours": "hours",
-          "price": "price",
+          "imageUrl": "url or empty string",
+          "address": "Address",
+          "openingHours": "Hours",
+          "price": "Price",
           "startTime": "09:00",
           "endTime": "10:30",
           "travelTimeFromPrevious": 15,
-          "notes": "Optional tip or note for this stop"
+          "notes": "Helpful tip"
         }
       ],
       "totalDuration": 480,
       "totalDistance": 12.5
     }
   ]
-}
-
-- Include ALL selected places in the itinerary
-- Each place must keep its original fields from the input`
+}`
 
       const rawText = await callGemini(prompt, GEMINI_KEY, 8192)
-      const cleanJson = rawText.replace(/```json\s*/gi, "").replace(/```\s*/gi, "").trim()
-      itinerary = JSON.parse(cleanJson)
       
+      // Parse JSON from response
+      try {
+        itinerary = JSON.parse(rawText)
+      } catch {
+        const jsonStart = rawText.indexOf("{")
+        const jsonEnd = rawText.lastIndexOf("}")
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          itinerary = JSON.parse(rawText.substring(jsonStart, jsonEnd + 1))
+        } else {
+          throw new Error("Could not parse Gemini response")
+        }
+      }
+
+      console.log("Gemini itinerary generated successfully")
     } catch (e: any) {
-      console.log("Gemini failed or quota exceeded, using fallback generation strategy.");
-      
+      console.error("Gemini failed, using fallback:", e.message)
+
       // FALLBACK: Rule-based generation
       const start = new Date(startDate)
       const end = new Date(endDate)
       const numDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
-      
+
       const days = []
       let placeIndex = 0
       const placesPerDay = Math.ceil(places.length / numDays)
-      
+
       for (let i = 0; i < numDays; i++) {
         const currentDate = new Date(start)
         currentDate.setDate(start.getDate() + i)
-        
+
         const dayPlaces = []
         let currentHour = 9
         let currentMinute = 0
         let totalDayDuration = 0
-        
+
         for (let j = 0; j < placesPerDay && placeIndex < places.length; j++) {
           const place = places[placeIndex]
-          const travelTime = j === 0 ? 0 : 20 // 20 mins travel time between places
-          
+          const travelTime = j === 0 ? 0 : 20
+
           currentMinute += travelTime
           if (currentMinute >= 60) {
             currentHour += Math.floor(currentMinute / 60)
             currentMinute %= 60
           }
-          
-          const startTimeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`
-          
-          currentMinute += place.duration
+
+          const startTimeStr = String(currentHour).padStart(2, "0") + ":" + String(currentMinute).padStart(2, "0")
+
+          currentMinute += (place.duration || 90)
           if (currentMinute >= 60) {
             currentHour += Math.floor(currentMinute / 60)
             currentMinute %= 60
           }
-          
-          const endTimeStr = `${String(currentHour).padStart(2, '0')}:${String(currentMinute).padStart(2, '0')}`
-          
+
+          const endTimeStr = String(currentHour).padStart(2, "0") + ":" + String(currentMinute).padStart(2, "0")
+
           dayPlaces.push({
             ...place,
             startTime: startTimeStr,
             endTime: endTimeStr,
             travelTimeFromPrevious: travelTime > 0 ? travelTime : undefined,
-            notes: "Fallback generation: Add a meal break near here!"
+            notes: "Auto-generated schedule — consider adjusting times to your preference!",
           })
-          
-          totalDayDuration += travelTime + place.duration
+
+          totalDayDuration += travelTime + (place.duration || 90)
           placeIndex++
         }
-        
+
         days.push({
-          date: currentDate.toISOString().split('T')[0],
+          date: currentDate.toISOString().split("T")[0],
           places: dayPlaces,
           totalDuration: totalDayDuration,
-          totalDistance: Math.round((dayPlaces.length * 2.5) * 10) / 10 // Mock distance
+          totalDistance: Math.round(dayPlaces.length * 2.5 * 10) / 10,
         })
       }
-      
+
       itinerary = {
-        id: `itin_fallback_${Date.now()}`,
+        id: "itin_fallback_" + Date.now(),
         destination,
         startDate,
         endDate,
-        days: days
+        days,
       }
     }
 
-    // Ensure the itinerary has required fields
-    itinerary.id = itinerary.id || `itin_${Date.now()}`
+    // Ensure required fields
+    itinerary.id = itinerary.id || "itin_" + Date.now()
     itinerary.destination = itinerary.destination || destination
     itinerary.startDate = itinerary.startDate || startDate
     itinerary.endDate = itinerary.endDate || endDate
     itinerary.createdAt = new Date().toISOString()
 
-    // Validate days
+    // Validate days structure
     if (itinerary.days && Array.isArray(itinerary.days)) {
       itinerary.days = itinerary.days.map((day: any, i: number) => ({
         ...day,

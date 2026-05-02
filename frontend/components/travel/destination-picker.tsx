@@ -131,6 +131,7 @@ export function DestinationPicker() {
             className="absolute right-2 top-1/2 -translate-y-1/2 rounded-xl"
             onClick={handleSearchSubmit}
             disabled={searchQuery.trim().length === 0}
+            suppressHydrationWarning
           >
             Explore
           </Button>

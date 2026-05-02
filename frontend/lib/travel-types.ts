@@ -29,6 +29,9 @@ export interface TravelPreferences {
   pace: 'relaxed' | 'moderate' | 'intensive'
   interests: PlaceCategory[]
   accommodationType: 'hotel' | 'hostel' | 'apartment' | 'resort'
+  numPeople: number
+  budget: number
+  tripIdea: string
 }
 
 export interface ItineraryDay {

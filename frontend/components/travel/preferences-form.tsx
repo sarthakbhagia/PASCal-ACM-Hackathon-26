@@ -47,6 +47,9 @@ export function PreferencesForm() {
   const [pace, setPace] = useState<TravelPreferences['pace']>('moderate')
   const [interests, setInterests] = useState<PlaceCategory[]>(['landmark', 'restaurant'])
   const [accommodation, setAccommodation] = useState<TravelPreferences['accommodationType']>('hotel')
+const [numPeople, setNumPeople] = useState(1)
+const [budget, setBudget] = useState(1000)
+const [tripIdea, setTripIdea] = useState('')
   
   const toggleInterest = (interest: PlaceCategory) => {
     if (interests.includes(interest)) {
@@ -66,6 +69,9 @@ export function PreferencesForm() {
       pace,
       interests,
       accommodationType: accommodation,
+      numPeople,
+      budget,
+      tripIdea,
     })
   }
   
@@ -225,6 +231,61 @@ export function PreferencesForm() {
                   </button>
                 ))}
               </div>
+            </CardContent>
+          </Card>
+          
+          {/* Travel Details */}
+          <Card className="border-border/50 bg-card/50 backdrop-blur">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <DollarSign className="w-5 h-5 text-primary" />
+                Travel Details
+              </CardTitle>
+              <CardDescription>Group size and budget for your trip</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Number of Travelers</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={numPeople}
+                    onChange={(e) => setNumPeople(Math.max(1, parseInt(e.target.value) || 1))}
+                    className="w-full px-3 py-2 rounded-lg border border-border/50 bg-background focus:outline-none focus:border-primary"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Total Trip Budget (USD)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={budget}
+                    onChange={(e) => setBudget(Math.max(0, parseInt(e.target.value) || 0))}
+                    className="w-full px-3 py-2 rounded-lg border border-border/50 bg-background focus:outline-none focus:border-primary"
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          
+          {/* Trip Idea */}
+          <Card className="border-border/50 bg-card/50 backdrop-blur">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-lg">
+                <Heart className="w-5 h-5 text-primary" />
+                Trip Idea
+              </CardTitle>
+              <CardDescription>Describe your general trip vibe or idea</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <textarea
+                value={tripIdea}
+                onChange={(e) => setTripIdea(e.target.value)}
+                placeholder="e.g., family-friendly vegetarian trip with lots of nature walks"
+                rows={3}
+                className="w-full px-3 py-2 rounded-lg border border-border/50 bg-background focus:outline-none focus:border-primary resize-none"
+              />
             </CardContent>
           </Card>
         </div>

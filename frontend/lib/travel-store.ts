@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+
 import type { Place, TravelPreferences, Itinerary, ItineraryDay, ItineraryPlace } from './travel-types'
 import { popularDestinations } from './sample-data'
 import { supabase } from './supabase'
@@ -51,7 +52,8 @@ interface TravelState {
   setItinerary: (itinerary: Itinerary) => void
 }
 
-export const useTravelStore = create<TravelState>((set, get) => ({
+export const useTravelStore = create<TravelState>()(
+    (set, get) => ({
   currentStep: 'destination',
   selectedDestination: null,
   destinationCoordinates: null,
@@ -116,10 +118,12 @@ export const useTravelStore = create<TravelState>((set, get) => ({
           interests: preferences?.interests || ['landmark', 'restaurant'],
           pace: preferences?.pace || 'moderate',
           accommodationType: preferences?.accommodationType || 'hotel',
+          tripIdea: preferences?.tripIdea || '',
         },
       })
       
       if (error) throw new Error(error.message || 'Failed to discover places')
+      if (data?.error) throw new Error(data.error)
       
       let places: Place[] = data?.places || []
       
@@ -167,6 +171,9 @@ export const useTravelStore = create<TravelState>((set, get) => ({
             pace: preferences.pace,
             interests: preferences.interests,
             accommodationType: preferences.accommodationType,
+            numPeople: preferences.numPeople,
+            budget: preferences.budget,
+            tripIdea: preferences.tripIdea,
           },
           startDate: format(preferences.startDate, 'yyyy-MM-dd'),
           endDate: format(preferences.endDate, 'yyyy-MM-dd'),
@@ -174,6 +181,7 @@ export const useTravelStore = create<TravelState>((set, get) => ({
       })
       
       if (error) throw new Error(error.message || 'Failed to generate itinerary')
+      if (data?.error) throw new Error(data.error)
       
       const itinerary = data?.itinerary
       if (!itinerary) throw new Error('No itinerary returned')
@@ -231,6 +239,7 @@ export const useTravelStore = create<TravelState>((set, get) => ({
       })
       
       if (error) throw new Error(error.message || 'Failed to enhance itinerary')
+      if (data?.error) throw new Error(data.error)
       
       const enhanced = data?.itinerary
       if (!enhanced) throw new Error('No enhanced itinerary returned')
@@ -333,18 +342,19 @@ export const useTravelStore = create<TravelState>((set, get) => ({
   
   clearError: () => set({ error: null }),
   
-  resetPlanning: () => set({
-    currentStep: 'destination',
-    selectedDestination: null,
-    destinationCoordinates: null,
-    preferences: null,
-    discoveredPlaces: [],
-    selectedPlaces: [],
-    itinerary: null,
-    activeDayIndex: 0,
-    isDiscovering: false,
-    isGenerating: false,
-    isEnhancing: false,
-    error: null,
-  }),
-}))
+   resetPlanning: () => set({
+     currentStep: 'destination',
+     selectedDestination: null,
+     destinationCoordinates: null,
+     preferences: null,
+     discoveredPlaces: [],
+     selectedPlaces: [],
+     itinerary: null,
+     activeDayIndex: 0,
+     isDiscovering: false,
+     isGenerating: false,
+     isEnhancing: false,
+     error: null,
+   }),
+  })
+)
