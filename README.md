@@ -25,6 +25,7 @@ cd frontend
 touch .env.local
 ```
 
+Create a `frontend/.env.local` file, where you'll store your API keys.
 Add the following API keys to your `.env.local` file:
 ```env
 # Supabase Project Credentials (found in Project Settings -> API)
