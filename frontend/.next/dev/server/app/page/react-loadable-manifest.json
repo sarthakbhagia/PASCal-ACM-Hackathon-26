@@ -1,0 +1,11 @@
+{
+  "[project]/frontend/components/travel/travel-map.tsx [app-client] (ecmascript, next/dynamic entry)": {
+    "id": "[project]/frontend/components/travel/travel-map.tsx [app-client] (ecmascript, next/dynamic entry)",
+    "files": [
+      "static/chunks/0r9g_09~4h64._.js",
+      "static/chunks/frontend_components_travel_travel-map_tsx_0wcej7g._.js",
+      "static/chunks/0r9g_leaflet_dist_leaflet_0e1jrv_.css",
+      "static/chunks/frontend_components_travel_travel-map_tsx_0zb5qaz._.js"
+    ]
+  }
+}
