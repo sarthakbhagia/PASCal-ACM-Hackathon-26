@@ -75,8 +75,8 @@ export function TravelMap({
       scrollWheelZoom={interactive}
     >
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-        url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+        attribution='&copy; <a href="https://locationiq.com/?ref=maps" target="_blank">LocationIQ</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        url={`https://{s}-tiles.locationiq.com/v3/dark/r/{z}/{x}/{y}.png?key=${process.env.NEXT_PUBLIC_LOCATIONIQ_API_KEY}`}
       />
       
       <MapUpdater center={center} places={places} />
