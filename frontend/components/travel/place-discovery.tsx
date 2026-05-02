@@ -176,21 +176,13 @@ export function PlaceDiscovery() {
                   onMouseEnter={() => setHoveredId(place.id)}
                   onMouseLeave={() => setHoveredId(null)}
                 >
-                  <div className="relative h-40 overflow-hidden">
-                    <Image
-                      src={place.imageUrl}
-                      alt={place.name}
-                      fill
-                      className="object-cover transition-transform duration-500 group-hover:scale-110"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-background/90 via-background/30 to-transparent" />
-                    
+                  <div className="p-4 bg-secondary/20 relative pb-2">
                     {/* Selection indicator */}
                     <div className={cn(
-                      'absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center transition-all',
+                      'absolute top-3 right-3 w-8 h-8 rounded-full flex items-center justify-center transition-all z-10',
                       selected 
                         ? 'bg-primary text-primary-foreground scale-100' 
-                        : 'bg-background/80 text-foreground scale-90 opacity-0 group-hover:opacity-100'
+                        : 'bg-background border border-border text-foreground scale-90 opacity-0 group-hover:opacity-100'
                     )}>
                       <Check className="w-4 h-4" />
                     </div>
@@ -198,7 +190,7 @@ export function PlaceDiscovery() {
                     {/* Category badge */}
                     <Badge 
                       className={cn(
-                        'absolute top-3 left-3 border',
+                        'border mb-2 inline-flex',
                         categoryColors[place.category]
                       )}
                     >
@@ -206,8 +198,8 @@ export function PlaceDiscovery() {
                     </Badge>
                     
                     {/* Place name */}
-                    <div className="absolute bottom-3 left-3 right-3">
-                      <h3 className="font-bold text-lg line-clamp-1">{place.name}</h3>
+                    <div>
+                      <h3 className="font-bold text-lg line-clamp-2 pr-8">{place.name}</h3>
                     </div>
                   </div>
                   

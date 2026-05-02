@@ -105,6 +105,7 @@ export function TravelMap({
   
   return (
     <MapContainer
+      key={`${center[0]}-${center[1]}`}
       center={center}
       zoom={12}
       className="w-full h-full min-h-[400px] rounded-xl z-0"

@@ -37,9 +37,55 @@ async function callGemini(prompt: string, apiKey: string, maxTokens = 4096): Pro
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
-              temperature: 0.6,
+              temperature: 0.2, // Lower temperature for more stable JSON
               maxOutputTokens: maxTokens,
               responseMimeType: "application/json",
+              responseSchema: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  destination: { type: "string" },
+                  startDate: { type: "string" },
+                  endDate: { type: "string" },
+                  days: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        date: { type: "string" },
+                        places: {
+                          type: "array",
+                          items: {
+                            type: "object",
+                            properties: {
+                              id: { type: "string" },
+                              name: { type: "string" },
+                              description: { type: "string" },
+                              category: { type: "string" },
+                              coordinates: { type: "array", items: { type: "number" } },
+                              rating: { type: "number" },
+                              duration: { type: "number" },
+                              imageUrl: { type: "string" },
+                              address: { type: "string" },
+                              openingHours: { type: "string" },
+                              price: { type: "string" },
+                              startTime: { type: "string" },
+                              endTime: { type: "string" },
+                              travelTimeFromPrevious: { type: "number" },
+                              notes: { type: "string" }
+                            },
+                            required: ["id", "name", "description", "category", "coordinates", "rating", "duration", "startTime", "endTime"]
+                          }
+                        },
+                        totalDuration: { type: "number" },
+                        totalDistance: { type: "number" }
+                      },
+                      required: ["date", "places", "totalDuration", "totalDistance"]
+                    }
+                  }
+                },
+                required: ["id", "destination", "startDate", "endDate", "days"]
+              }
             },
           }),
         })
@@ -101,8 +147,13 @@ Deno.serve(async (req) => {
 
     let itinerary: any
 
+    // Compute number of days
+    const start = new Date(startDate)
+    const end = new Date(endDate)
+    const numDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
+
     try {
-      const prompt = `Create a detailed day-by-day travel itinerary for ${destination} from ${startDate} to ${endDate}.
+      const prompt = `Create a detailed day-by-day travel itinerary for ${destination} from ${startDate} to ${endDate} (${numDays} days total).
 
 Travel Preferences:
 - Pace: ${preferences.pace} (relaxed=2-3 places/day, moderate=3-4, intensive=4-5)
@@ -111,7 +162,7 @@ Travel Preferences:
 - Trip vibe: ${preferences.tripIdea || "General travel"}
 - Interests: ${preferences.interests.join(", ")}
 
-PLACES THE USER SELECTED (include ALL of them):
+PLACES THE USER SELECTED (Use these as the foundation):
 ${JSON.stringify(places.map((p: any) => ({
   id: p.id,
   name: p.name,
@@ -125,12 +176,16 @@ ${JSON.stringify(places.map((p: any) => ({
 })), null, 2)}
 
 Rules:
-1. Include ALL selected places distributed across the trip days
-2. Group nearby places on the same day
-3. Start each day around 9:00 AM
-4. Add realistic travel time between places (in minutes)
-5. Respect the pace preference
-6. Include helpful tips in the notes field
+1. You MUST generate exactly ${Math.min(numDays, 5)} days of itinerary (cap at 5 days maximum to prevent output cutoff).
+2. Include the user's selected places as a core foundation.
+3. CRUCIAL: Be free and creative! MIX IN additional unique suggestions, hidden gems, and popular tourist spots.
+4. Pack each day with a schedule of exactly 3 to 4 specific, named activities/places. Do not exceed 4 places per day to keep output compact.
+5. Group nearby places on the same day.
+6. Start each day around 9:00 AM.
+7. Add realistic travel time between places (in minutes).
+8. Respect the pace preference.
+9. CRITICAL: DO NOT use double quotes (") inside any generated string values to prevent JSON syntax errors. Use single quotes (') instead.
+10. CRITICAL: Keep ALL text fields (descriptions, notes, etc.) EXTREMELY CONCISE (maximum 5-10 words). You must conserve tokens!
 
 Return a JSON object with this exact structure:
 {
@@ -186,13 +241,9 @@ Return a JSON object with this exact structure:
       console.error("Gemini failed, using fallback:", e.message)
 
       // FALLBACK: Rule-based generation
-      const start = new Date(startDate)
-      const end = new Date(endDate)
-      const numDays = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1)
-
       const days = []
       let placeIndex = 0
-      const placesPerDay = Math.ceil(places.length / numDays)
+      const placesPerDay = Math.ceil(places.length / numDays) || 3
 
       for (let i = 0; i < numDays; i++) {
         const currentDate = new Date(start)

@@ -24,7 +24,7 @@ function extractPrice(content: string): string {
 
 // Call Gemini to generate structured place data from Tavily search results
 async function callGemini(prompt: string, apiKey: string): Promise<string> {
-  // Use gemini-2.5-flash (current stable), fall back to gemini-2.0-flash
+  // Use gemini-2.5-flash (production-ready latest), fall back to gemini-2.0-flash
   const models = ["gemini-2.5-flash", "gemini-2.0-flash"]
 
   for (const model of models) {
@@ -38,9 +38,23 @@ async function callGemini(prompt: string, apiKey: string): Promise<string> {
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 4096,
+            temperature: 0.2, // Lower temperature for more consistent JSON
+            maxOutputTokens: 8192,
             responseMimeType: "application/json",
+            responseSchema: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  description: { type: "string" },
+                  category: { type: "string", enum: ["landmark", "restaurant", "nature", "culture", "shopping", "entertainment", "nightlife", "museum", "temple", "beach", "park", "cafe"] },
+                  estimatedPrice: { type: "string" },
+                  estimatedDuration: { type: "number" }
+                },
+                required: ["name", "description", "category", "estimatedPrice", "estimatedDuration"]
+              }
+            }
           },
         }),
       })
@@ -70,9 +84,23 @@ async function callGemini(prompt: string, apiKey: string): Promise<string> {
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 4096,
+              temperature: 0.1,
+              maxOutputTokens: 8192,
               responseMimeType: "application/json",
+              responseSchema: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    name: { type: "string" },
+                    description: { type: "string" },
+                    category: { type: "string", enum: ["landmark", "restaurant", "nature", "culture", "shopping", "entertainment", "nightlife", "museum", "temple", "beach", "park", "cafe"] },
+                    estimatedPrice: { type: "string" },
+                    estimatedDuration: { type: "number" }
+                  },
+                  required: ["name", "description", "category", "estimatedPrice", "estimatedDuration"]
+                }
+              }
             },
           }),
         })
@@ -181,49 +209,50 @@ Deno.serve(async (req) => {
     }
 
     // --- Step 2: Send Tavily results to Gemini for structured place extraction ---
-    const prompt = `You are a travel expert. Analyze these web search results about ${destination} and extract specific, real places to visit.
+    const prompt = `SYSTEM: You are a professional travel planner. Your task is to extract real, specific attractions and places to visit from the provided search results.
 
-Search Results:
+USER INTERESTS: ${interests.join(", ")}
+${tripIdea ? `TRIP CONTEXT: ${tripIdea}` : ""}
+DESTINATION: ${destination}
+
+SEARCH DATA:
 ${JSON.stringify(uniqueResults.slice(0, 15).map(r => ({
   title: r.title,
   content: r.content?.slice(0, 400),
 })), null, 2)}
 
-User interests: ${interests.join(", ")}
-${tripIdea ? `Trip idea: ${tripIdea}` : ""}
+INSTRUCTIONS:
+1. Extract 20-30 high-quality, specific, real-world places (landmarks, museums, parks, exact restaurant names, etc.) that match the user's interests.
+2. CRUCIAL: Alongside the search results, YOU MUST proactively add the 5-8 most famous and popular tourist attractions for this destination if they aren't fully covered in the search results. People often want to see the main highlights!
+3. STRICT RULE: DO NOT include generic categories or general travel advice (like "Beautiful Beaches", "Local Markets", or "Explore the City"). You MUST provide the EXACT, specific proper noun name of the attraction (e.g., "Bondi Beach", "Louvre Museum", "Pike Place Market").
+4. For "description", provide exactly 2-3 bullet points highlighting unique facts or visitor tips. Use "•" for bullets.
+5. "estimatedDuration" must be an integer representing minutes (e.g., 60, 120).
+6. "category" must be one of the allowed values: landmark, restaurant, nature, culture, shopping, entertainment, nightlife, museum, temple, beach, park, cafe.
+7. CRITICAL: DO NOT use double quotes (") inside any string values to prevent JSON syntax errors. Use single quotes (') instead if needed.
 
-Extract 8-15 specific, real places from the search results. For each place, provide a pointwise card format:
-- "name": The actual name of the place/attraction
-- "description": A compelling 2-3 sentence description formatted as a pointwise card highlighting key features/facts
-- "category": One of: landmark, restaurant, nature, culture, shopping, entertainment, nightlife, museum, temple, beach, park, cafe
-- "estimatedPrice": A price string like "Free", "$10-20", "$$", etc.
-- "estimatedDuration": Duration in minutes (number)
-
-IMPORTANT: Only include specific named places, NOT generic article titles.
-
-Return a JSON array:
-[
-  {"name": "Place Name", "description": "• Point 1\n• Point 2", "category": "landmark", "estimatedPrice": "Free", "estimatedDuration": 90},
-  ...
-]`
+OUTPUT FORMAT:
+Return ONLY a JSON array of objects. No conversational text, no markdown code blocks.
+Example:
+[{"name": "Eiffel Tower", "description": "• Iconic wrought-iron lattice tower on the Champ de Mars.\n• Built in 1889 as the entrance to the 1889 World's Fair.", "category": "landmark", "estimatedPrice": "€25", "estimatedDuration": 120}]`
 
     let places: any[] = []
+    let parsed: any = null
+    let geminiErrorMessage: string | null = null
 
     try {
       const geminiResponse = await callGemini(prompt, GEMINI_KEY)
       
       // Parse the response - try to extract JSON array
-      let parsed: any
       try {
         parsed = JSON.parse(geminiResponse)
-      } catch {
-        // Try to find JSON array in the response
+      } catch (e) {
+        console.error("Direct JSON parse failed, attempting substring extraction:", e)
         const arrStart = geminiResponse.indexOf("[")
         const arrEnd = geminiResponse.lastIndexOf("]")
         if (arrStart !== -1 && arrEnd !== -1) {
           parsed = JSON.parse(geminiResponse.substring(arrStart, arrEnd + 1))
         } else {
-          throw new Error("Could not parse Gemini response as JSON")
+          throw new Error("Could not parse Gemini response as JSON even with fallback")
         }
       }
 
@@ -235,6 +264,7 @@ Return a JSON array:
       
       console.log(`Gemini extracted ${places.length} places`)
     } catch (err) {
+      geminiErrorMessage = err instanceof Error ? err.message : String(err)
       console.error("Gemini processing failed, using fallback:", err)
       
       // Fallback: create places directly from Tavily results

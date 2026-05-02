@@ -288,8 +288,8 @@ export function ItineraryView() {
                           }}
                           className="flex items-center gap-3 p-3 rounded-lg border border-border/50 hover:border-primary/50 transition-all text-left"
                         >
-                          <div className="relative w-12 h-12 rounded-lg overflow-hidden flex-shrink-0">
-                            <Image src={place.imageUrl} alt={place.name} fill className="object-cover" />
+                          <div className="w-8 h-8 rounded-full bg-secondary/50 flex items-center justify-center flex-shrink-0 text-muted-foreground">
+                            <MapPin className="w-4 h-4" />
                           </div>
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-sm line-clamp-1">{place.name}</p>
@@ -353,14 +353,7 @@ export function ItineraryView() {
                       {/* Content */}
                       <div className="flex-1 p-4">
                         <div className="flex items-start gap-4">
-                          <div className="relative w-16 h-16 rounded-lg overflow-hidden flex-shrink-0">
-                            <Image
-                              src={place.imageUrl}
-                              alt={place.name}
-                              fill
-                              className="object-cover"
-                            />
-                          </div>
+
                           
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
